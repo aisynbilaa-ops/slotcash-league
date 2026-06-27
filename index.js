@@ -540,7 +540,7 @@ client.on('messageCreate', async (message) => {
         });
     }
 
-// ================= PVP INVITE: BLACKJACK (sbj inv) =================
+// ================= PVP INVITE: BLACKJACK DENGAN POLA RAHASIA (sbj inv) =================
     if (command === 'sbj' && args[0]?.toLowerCase() === 'inv') {
         const targetUser = message.mentions.users.first();
         const betAmt = parseInt(args[2]);
@@ -559,7 +559,7 @@ client.on('messageCreate', async (message) => {
         const inviteEmbed = new EmbedBuilder()
             .setColor('#FFA500')
             .setAuthor({ name: `${message.author.tag} | Blackjack PvP`, iconURL: message.author.displayAvatarURL({ dynamic: true }) })
-            .setDescription(`<:20502pinkswordsrankicon:1520409173798686832> <@${message.author.id}> mengajak <@${targetUser.id}> berduel **Blackjack**!\n**Taruhan:** ${betAmt.toLocaleString()} cash\n\nKlik **Setuju** untuk memulai!`);
+            .setDescription(`⚔️ <@${message.author.id}> mengajak <@${targetUser.id}> berduel **Blackjack**!\n**Taruhan:** ${betAmt.toLocaleString()} cash\n\nKlik **Setuju** untuk memulai!`);
 
         const inviteRow = new ActionRowBuilder().addComponents(
             new ButtonBuilder().setCustomId('pvp_accept').setLabel('Setuju').setStyle(ButtonStyle.Success),
@@ -573,7 +573,7 @@ client.on('messageCreate', async (message) => {
 
         inviteCollector.on('collect', async i => {
             if (i.customId === 'pvp_decline') {
-                if (i.user.id !== targetUser.id) return i.reply({ content: 'hanya yang diajak yang bisa menolak!', ephemeral: true });
+                if (i.user.id !== targetUser.id) return i.reply({ content: 'Hanya yang diajak yang bisa menolak!', ephemeral: true });
                 inviteCollector.stop();
                 return i.update({ content: `❌ <@${targetUser.id}> menolak ajakan duel.`, embeds: [], components: [] });
             }
@@ -587,8 +587,22 @@ client.on('messageCreate', async (message) => {
                 targetData.cash -= betAmt;
                 saveDB();
 
-                let p1Hand = [getRandomBjCard(), getRandomBjCard()];
-                let p2Hand = [getRandomBjCard(), getRandomBjCard()];
+                // --- SISTEM POLA KARTU RAHASIA ---
+                // Urutan kartu paten (angka kecil 1-7). Pemain pro bisa menghafal urutan ini!
+                const PVP_PATTERN = [2, 4, 3, 5, 2, 6, 3, 7, 2, 4, 5, 1, 3, 6];
+                // Mulai dari titik acak, tapi akan bergerak berurutan ke kanan terus-menerus
+                let cardIndex = Math.floor(Math.random() * PVP_PATTERN.length); 
+
+                function getPvPCard() {
+                    const val = PVP_PATTERN[cardIndex % PVP_PATTERN.length];
+                    cardIndex++; // Geser ke pola selanjutnya
+                    return { display: val, emoji: BJ_CARD_EMOJIS[val], value: val }; 
+                }
+
+                // Bagikan masing-masing 2 kartu awal dari pola rahasia
+                let p1Hand = [getPvPCard(), getPvPCard()];
+                let p2Hand = [getPvPCard(), getPvPCard()];
+                
                 let turn = message.author.id;
                 let gameOver = false;
 
@@ -604,18 +618,18 @@ client.on('messageCreate', async (message) => {
                     let p2Score = getVal(p2Hand);
                     
                     const e = new EmbedBuilder()
-                        .setAuthor({ name: `Blackjack Duel | Taruhan: ${betAmt * 2}`, iconURL: message.guild.iconURL() })
-                        .setDescription(`**${message.author.username}** [${p1Score}]\n${p1Hand.map(c=>c.emoji).join(' ')}\n\n**${targetUser.username}** [${p2Score}]\n${p2Hand.map(c=>c.emoji).join(' ')}\n\n${gameOver ? '🏁 Permainan Selesai' : `🔥 Giliran: <@${turn}>`}`)
-                        .setColor(gameOver ? '#57F287' : '#5865F2');
+                        .setAuthor({ name: `BLACKJACK DUEL | JUMLAH TARUHAN: ${betAmt * 2}`, iconURL: message.guild.iconURL() })
+                        .setDescription(`**${message.author.username}** [${p1Score}]\n${p1Hand.map(c=>c.emoji).join(' ')}\n\n**${targetUser.username}** [${p2Score}]\n${p2Hand.map(c=>c.emoji).join(' ')}\n\n${gameOver ? '🏁 **GAME BERAKHIR**' : `<a:31830redloading:1520420716003196978> GILIRAN: <@${turn}>`}`)
+                        .setColor(gameOver ? '#070707' : '#5865F2');
 
                     const r = new ActionRowBuilder().addComponents(
-                        new ButtonBuilder().setCustomId('duel_hit').setEmoji('<:next:1520401265455009905>').setStyle(ButtonStyle.Primary).setDisabled(gameOver),
+                        new ButtonBuilder().setCustomId('duel_hit').setEmoji('<:next:1520401265455009905> ').setStyle(ButtonStyle.Primary).setDisabled(gameOver),
                         new ButtonBuilder().setCustomId('duel_stand').setEmoji('<:9219stop:1520401130990075904>').setStyle(ButtonStyle.Danger).setDisabled(gameOver)
                     );
                     return { embeds: [e], components: [r] };
                 };
 
-                await i.update({ content: 'DUEL DIMULAI!', embeds: [], components: [] });
+                await i.update({ content: 'Duel Dimulai!', embeds: [], components: [] });
                 const gameMsg = await message.channel.send(buildGameEmbed());
                 const gameCollector = gameMsg.createMessageComponentCollector({ time: 60000 });
 
@@ -623,8 +637,9 @@ client.on('messageCreate', async (message) => {
                     if (action.user.id !== turn) return action.reply({ content: 'Bukan giliranmu!', ephemeral: true });
 
                     if (action.customId === 'duel_hit') {
-                        if (turn === message.author.id) p1Hand.push(getRandomBjCard());
-                        else p2Hand.push(getRandomBjCard());
+                        // Tarik kartu dengan mengikuti pola
+                        if (turn === message.author.id) p1Hand.push(getPvPCard());
+                        else p2Hand.push(getPvPCard());
 
                         let currentTotal = turn === message.author.id ? getVal(p1Hand) : getVal(p2Hand);
 
@@ -636,14 +651,14 @@ client.on('messageCreate', async (message) => {
                             saveDB();
                             
                             const em = buildGameEmbed();
-                            em.embeds[0].setDescription(em.embeds[0].data.description + `\n\n💥 <@${turn}> BUST! <@${winner}> menang ${betAmt*2} cash!`);
+                            em.embeds[0].setDescription(em.embeds[0].data.description + `\n\n💥 <@${turn}> BUST! <@${winner}> WIN ${betAmt*2} cash!`);
                             return action.update(em);
                         }
                     }
 
                     if (action.customId === 'duel_stand') {
                         if (turn === message.author.id) {
-                            turn = targetUser.id; // Ganti giliran ke P2
+                            turn = targetUser.id; // Ganti giliran ke Pemain 2
                         } else {
                             gameOver = true;
                             gameCollector.stop();
@@ -652,14 +667,14 @@ client.on('messageCreate', async (message) => {
                             
                             if (v1 > v2) {
                                 getUserData(message.author.id).cash += (betAmt * 2);
-                                winnerMsg = `<a:8232pepetada:1520410477237112833> <@${message.author.id}> win!`;
+                                winnerMsg = `<@${message.author.id}> WIN!`;
                             } else if (v2 > v1) {
                                 getUserData(targetUser.id).cash += (betAmt * 2);
-                                winnerMsg = `<a:8232pepetada:1520410477237112833> <@${targetUser.id}> win!`;
+                                winnerMsg = `<@${targetUser.id}> WIN!`;
                             } else {
                                 getUserData(message.author.id).cash += betAmt;
                                 getUserData(targetUser.id).cash += betAmt;
-                                winnerMsg = `<:12870loading:1520411622156406785> Seri! Taruhan dikembalikan.`;
+                                winnerMsg = `TIE! Taruhan dikembalikan.`;
                             }
                             saveDB();
                             const em = buildGameEmbed();
@@ -757,15 +772,15 @@ client.on('messageCreate', async (message) => {
 
                 const gameEmbed = new EmbedBuilder()
                     .setColor('#5865F2')
-                    .setTitle('Mines Duel 💣')
+                    .setTitle('MINES DUEL <@${message.author.id}> & <@${targetUser.id}>')
                     .setDescription(`Pot: **${betAmt * 2} cash**\nGiliran: <@${turnPlayer}> (Pilih kotak!)`);
 
-                await i.update({ content: 'Duel Dimulai!', embeds: [], components: [] });
+                await i.update({ content: 'DUEL DIMULAI!', embeds: [], components: [] });
                 const gameMsg = await message.channel.send({ embeds: [gameEmbed], components: buildGrid() });
                 const gameCollector = gameMsg.createMessageComponentCollector({ time: 60000 });
 
                 gameCollector.on('collect', async action => {
-                    if (action.user.id !== turnPlayer) return action.reply({ content: 'bukan giliranmu!', ephemeral: true });
+                    if (action.user.id !== turnPlayer) return action.reply({ content: 'bukan giliran you!', ephemeral: true });
                     
                     let idx = parseInt(action.customId.split('_')[1]);
                     if (boardState[idx] !== "hidden") return action.deferUpdate();
@@ -777,7 +792,7 @@ client.on('messageCreate', async (message) => {
                         getUserData(winner).cash += (betAmt * 2);
                         saveDB();
 
-                        gameEmbed.setColor('#ED4245').setDescription(`💥 **BOM!** <@${turnPlayer}> terkena ledakan!\n🎉 <@${winner}> menang pot sebesar **${betAmt * 2}** cash!`);
+                        gameEmbed.setColor('#ED4245').setDescription(`💥 **BOM!** <@${turnPlayer}> terkena ledakan!\n <@${winner}> menang sebesar **${betAmt * 2}** cash!`);
                         return action.update({ embeds: [gameEmbed], components: buildGrid() });
                     } else {
                         boardState[idx] = "safe";
@@ -890,10 +905,10 @@ client.on('messageCreate', async (message) => {
 
             const embed = new EmbedBuilder()
                 .setAuthor({ 
-                    name: `${message.author.tag} | BLACKJACK`, 
+                    name: `<@${message.author.id}>, you bet ${bet.toLocaleString()} to play blackjack `, 
                     iconURL: message.author.displayAvatarURL({ dynamic: true }) 
                 })
-                .setDescription(`<:61152memberglow:1520406965933576354>  <@${message.author.id}>, you bet ${bet.toLocaleString()} to play blackjack\n\n**Dealer ${dealerScoreText}**\n${dealerCardString}\n\n**${message.author.username} ${playerScoreText}**\n${playerCardString}${statusText}`);
+                .setDescription(`\n\n**Dealer ${dealerScoreText}**\n${dealerCardString}\n\n**${message.author.username} ${playerScoreText}**\n${playerCardString}${statusText}`);
 
             if (status === 'won') {
                 embed.setColor('#57F287');
@@ -936,7 +951,7 @@ client.on('messageCreate', async (message) => {
 
                     if (pTotal > 21) {
                         collector.stop('lost');
-                        return msg.edit(generateBjEmbed('lost', `\n\n ~<a:42410pengubitcoin:1520404843200516137>  You lost ${bet.toLocaleString()} slotcash! (Bust [${pTotal}])`));
+                        return msg.edit(generateBjEmbed('lost', `\n\n<:4413bereft:1520419005150531595> **YOU LOSE ${bet.toLocaleString()} slotcash!**`));
                     }
 
                     // Jika menyentuh batas aman maksimal 5 kartu tanpa bust, paksa stand otomatis
