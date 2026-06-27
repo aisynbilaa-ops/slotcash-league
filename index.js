@@ -742,6 +742,71 @@ client.on('messageCreate', async (message) => {
         });
     }
 
+    // 8. Command: Slots (ss atau slot) - Maksimal 300.000
+    if (command === 'ss' || command === 'slot') {
+        const authorData = getUserData(message.author.id);
+        
+        let bet = null;
+        args.forEach(arg => {
+            const a = arg.toLowerCase();
+            if (a === 'all') bet = authorData.cash;
+            else if (!isNaN(a)) bet = parseInt(a);
+        });
+
+        if (bet === null) bet = 1;  
+        
+        // Batasan Maksimal diganti ke 300.000
+        if (bet > 300000) bet = 300000;   
+
+        if (bet <= 0) return message.reply('❌ Jumlah taruhan harus di atas 0.');
+        if (authorData.cash < bet) return message.reply('❌ Saldo kamu tidak mencukupi.');
+
+        authorData.cash -= bet;
+        saveDB();
+
+        const processMsg = await message.reply(`**  \`___SLOTS___\`**\n\` \` ${EMOJI_SLOTS_SPIN} ${EMOJI_SLOTS_SPIN} ${EMOJI_SLOTS_SPIN} **${message.author.username}** bet ${EMOJI_MONEY} ${bet.toLocaleString()}\n  \`|         |\`    spinning...\n  \`|         |\``);
+
+        setTimeout(async () => {
+            let slot1, slot2, slot3;
+            let winRatio = 0;
+            let statusText = '';
+
+            const RNG = Math.random(); 
+
+            if (RNG < 0.10) { 
+                winRatio = 3;
+                const randEmoji = EMOJI_SLOTS[Math.floor(Math.random() * EMOJI_SLOTS.length)];
+                slot1 = randEmoji; slot2 = randEmoji; slot3 = randEmoji;
+                const winnings = Math.floor(bet * winRatio);
+                statusText = `and won ${EMOJI_MONEY} ${winnings.toLocaleString()}!!`;
+
+            } else if (RNG < 0.45) { 
+                winRatio = 1.5;
+                const pairEmoji = EMOJI_SLOTS[Math.floor(Math.random() * EMOJI_SLOTS.length)];
+                const remaining = EMOJI_SLOTS.filter(e => e !== pairEmoji);
+                const diffEmoji = remaining[Math.floor(Math.random() * remaining.length)];
+                
+                const positions = [pairEmoji, pairEmoji, diffEmoji].sort(() => Math.random() - 0.5);
+                slot1 = positions[0]; slot2 = positions[1]; slot3 = positions[2];
+                const winnings = Math.floor(bet * winRatio);
+                statusText = `and won ${EMOJI_MONEY} ${winnings.toLocaleString()}!!`;
+
+            } else { 
+                winRatio = 0;
+                const shuffled = [...EMOJI_SLOTS].sort(() => Math.random() - 0.5);
+                slot1 = shuffled[0]; slot2 = shuffled[1]; slot3 = shuffled[2];
+                statusText = `and won nothing... :c`;
+            }
+
+            if (winRatio > 0) {
+                authorData.cash += Math.floor(bet * winRatio);
+                saveDB();
+            }
+
+            await processMsg.edit(`**  \`___SLOTS___\`**\n\` \` ${slot1} ${slot2} ${slot3} **${message.author.username}** bet ${EMOJI_MONEY} ${bet.toLocaleString()}\n  \`|         |\`    ${statusText}\n  \`|         |\``);
+        }, 3000);
+    }
+
     // 9. Perintah Baru: Mines Game Interaktif (smine) - Maksimal 300.000
     if (command === 'smine') {
         if (checkCooldown(message.author.id, 'smine', message)) return;
