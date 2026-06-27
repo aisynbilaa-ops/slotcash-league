@@ -31,6 +31,16 @@ const EMOJI_SLOTS = [
     '<:pisang:1519947217215946822>'
 ];
 
+// Opsional: Batasi hanya di channel tertentu
+const ALLOWED_CHANNEL_ID = '1520511368795652366'; 
+
+if (command === 'spy' && args[0]?.toLowerCase() === 'start') {
+    if (message.channel.id !== ALLOWED_CHANNEL_ID) {
+        return message.reply('❌ Game Spy hanya bisa dimulai di channel khusus spy!');
+    }
+    // ... lanjut ke logika start game ...
+}
+
 // ================= KONFIGURASI WHO IS THE SPY =================
 const activeSpyGames = new Map(); // Menyimpan sesi game per channel
 
