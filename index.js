@@ -772,7 +772,7 @@ client.on('messageCreate', async (message) => {
 
                 const gameEmbed = new EmbedBuilder()
                     .setColor('#5865F2')
-                    .setTitle('MINES DUEL ${message.author.username} VS ${targetUser.username}')
+                    .setTitle('MINE DUEL')
                     .setDescription(`Pot: **${betAmt * 2} cash**\nGiliran: <@${turnPlayer}> (Pilih kotak!)`);
 
                 await i.update({ content: 'DUEL DIMULAI!', embeds: [], components: [] });
