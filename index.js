@@ -576,25 +576,50 @@ client.on('messageCreate', async (message) => {
         const cardbackEmoji = '<:cardback:1520298633981988955>';
         const loadingEmoji = '<a:loadings:1520313495537586237>';
 
-        // Fungsi pembatas kalkulasi nilai maksimal 25 agar tidak overflow melewati aturan game
+        // Fungsi khusus untuk mendapatkan kartu lanjutan yang nilainya cenderung kecil (1-6) agar tidak langsung kelewatan
+        function getSmallBjCard() {
+            const card = getRandomBjCard();
+            if (card.value > 6) {
+                card.value = Math.floor(Math.random() * 6) + 1; // Konversi paksa ke angka kecil demi stabilitas game
+            }
+            return card;
+        }
+
+        // Fungsi kalkulasi nilai Blackjack adaptif (Kartu bernilai 1 otomatis dihitung 11 jika menguntungkan untuk dapat 21)
         function getHandValue(hand) {
-            let total = calculateHand(hand);
+            let total = 0;
+            let aces = 0;
+
+            for (const card of hand) {
+                if (card.value === 1) {
+                    aces++;
+                    total += 11; // Biasanya diasumsikan 11 untuk mengejar hoki angka 21
+                } else {
+                    total += card.value;
+                }
+            }
+
+            // Jika total melebihi 21 tetapi ada kartu bernilai 1 (Ace), turunkan nilainya kembali menjadi 1
+            while (total > 21 && aces > 0) {
+                total -= 10;
+                aces--;
+            }
+
             return total > 25 ? 25 : total;
         }
 
-        function generateBjEmbed(isGameOver = false, statusText = '', isLoading = false) {
+        function generateBjEmbed(status = 'playing', statusText = '', isLoading = false) {
             const playerTotal = getHandValue(playerHandVisible);
             const dealerTotal = getHandValue(dealerHandVisible);
 
             let dealerCardString = dealerHandVisible.map(c => c.emoji).join(' ');
-            if (!isGameOver && dealerHandVisible.length === 1) dealerCardString += ` ${cardbackEmoji}`;
+            if (status === 'playing' && dealerHandVisible.length === 1) dealerCardString += ` ${cardbackEmoji}`;
 
             let playerCardString = playerHandVisible.map(c => c.emoji).join(' ');
-            if (!isGameOver && playerHandVisible.length === 1) playerCardString += ` ${cardbackEmoji}`;
+            if (status === 'playing' && playerHandVisible.length === 1) playerCardString += ` ${cardbackEmoji}`;
 
-            // Angka disamping nama otomatis berubah dan kalkulasi real-time sesuai kartu terbuka
-            let dealerScoreText = `[${dealerTotal}${!isGameOver && dealerHandVisible.length === 1 ? ' + ?' : ''}]`;
-            let playerScoreText = `[${playerTotal}${!isGameOver && playerHandVisible.length === 1 ? ' + ?' : ''}]`;
+            let dealerScoreText = `[${dealerTotal}${status === 'playing' && dealerHandVisible.length === 1 ? ' + ?' : ''}]`;
+            let playerScoreText = `[${playerTotal}${status === 'playing' && playerHandVisible.length === 1 ? ' + ?' : ''}]`;
 
             if (isLoading) {
                 statusText = `\n\n${loadingEmoji} *Sedang membagikan/membuka kartu...*`;
@@ -603,21 +628,27 @@ client.on('messageCreate', async (message) => {
             const embed = new EmbedBuilder()
                 .setDescription(`👤 <@${message.author.id}>, you bet ${bet.toLocaleString()} to play blackjack\n\n**Dealer ${dealerScoreText}**\n${dealerCardString}\n\n**${message.author.username} ${playerScoreText}**\n${playerCardString}${statusText}`);
 
-            if (isGameOver) {
-                embed.setColor(statusText.includes('won') ? '#57F287' : statusText.includes('tied') ? '#95A5A6' : '#ED4245');
+            // Pewarnaan embed sesuai hasil permainan
+            if (status === 'won') {
+                embed.setColor('#57F287'); // HIJAU
+            } else if (status === 'lost') {
+                embed.setColor('#ED4245'); // MERAH
+            } else if (status === 'tied') {
+                embed.setColor('#57F287'); // HIJAU UNTUK SERI (UANG KEMBALI)
             } else {
-                embed.setColor('#5865F2');
+                embed.setColor('#5865F2'); // BIRU SAAT BERMAIN
             }
 
+            const isGameOver = status !== 'playing';
             const buttons = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('bj_hit').setEmoji('👊').setStyle(ButtonStyle.Primary).setDisabled(isGameOver || isLoading),
+                new ButtonBuilder().setCustomId('bj_hit').setEmoji('👊').setStyle(ButtonStyle.Primary).setDisabled(isGameOver || isLoading || playerHandVisible.length >= 5),
                 new ButtonBuilder().setCustomId('bj_stand').setEmoji('🛑').setStyle(ButtonStyle.Danger).setDisabled(isGameOver || isLoading)
             );
 
             return { embeds: [embed], components: [buttons] };
         }
 
-        const msg = await message.reply(generateBjEmbed(false));
+        const msg = await message.reply(generateBjEmbed('playing'));
         const collector = msg.createMessageComponentCollector({
             filter: i => i.user.id === message.author.id,
             time: 60000
@@ -625,78 +656,84 @@ client.on('messageCreate', async (message) => {
 
         collector.on('collect', async i => {
             if (i.customId === 'bj_hit') {
-                // Efek animasi loading saat menekan tombol tinju (Hit)
-                await i.update(generateBjEmbed(false, '', true));
+                await i.update(generateBjEmbed('playing', '', true));
 
                 setTimeout(async () => {
-                    // Jika klik pertama, cardback awal dibuka menjadi kartu angka riil
                     if (playerHandVisible.length === 1) {
                         playerHandVisible.push(playerHiddenCard);
                     } else {
-                        // Klik selanjutnya mengambil kartu acak dari deck
-                        playerHandVisible.push(getRandomBjCard());
+                        // Kartu ke-3 sampai ke-5 menggunakan filter kartu angka kecil agar stabil
+                        playerHandVisible.push(getSmallBjCard());
                     }
 
-                    let pTotal = calculateHand(playerHandVisible);
+                    let pTotal = getHandValue(playerHandVisible);
 
-                    // Batas kemenangan mutlak <= 21. Jika lewat, otomatis kalah (Bust) dengan limit tampilan angka max 25
                     if (pTotal > 21) {
                         collector.stop('lost');
-                        let finalScore = getHandValue(playerHandVisible);
-                        return msg.edit(generateBjEmbed(true, `\n\n🪙 ~ You lost ${bet.toLocaleString()} cowoncy! (Bust [${finalScore}])`));
+                        return msg.edit(generateBjEmbed('lost', `\n\n🪙 ~ You lost ${bet.toLocaleString()} cowoncy! (Bust [${pTotal}])`));
                     }
 
-                    return msg.edit(generateBjEmbed(false));
-                }, 1200); // Jeda durasi animasi loading 1.2 detik
+                    // Jika menyentuh batas aman maksimal 5 kartu tanpa bust, paksa stand otomatis
+                    if (playerHandVisible.length >= 5) {
+                        collector.stop('stand');
+                        return triggerDealerTurn();
+                    }
+
+                    return msg.edit(generateBjEmbed('playing'));
+                }, 1200);
             }
 
             if (i.customId === 'bj_stand') {
                 collector.stop('stand');
-                // Efek animasi loading saat menekan tombol stop (Stand)
-                await i.update(generateBjEmbed(false, '', true));
-
-                setTimeout(async () => {
-                    // Buka kartu cardback tersembunyi milik dealer
-                    dealerHandVisible.push(dealerHiddenCard);
-                    
-                    if (playerHandVisible.length === 1) {
-                        playerHandVisible.push(playerHiddenCard);
-                    }
-
-                    let dTotal = calculateHand(dealerHandVisible);
-                    let pTotal = calculateHand(playerHandVisible);
-
-                    // INTELLIGENT CASINO AI: Angka dealer dibatasi agar tidak terlalu tinggi agresif
-                    // Dealer hanya akan menambah kartu jika nilainya di bawah 17 DAN di bawah total poin pemain saat ini
-                    while (dTotal < 17 && dTotal < pTotal) {
-                        dealerHandVisible.push(getRandomBjCard());
-                        dTotal = calculateHand(dealerHandVisible);
-                    }
-
-                    let finalPlayerTotal = calculateHand(playerHandVisible);
-                    let finalDealerTotal = calculateHand(dealerHandVisible);
-
-                    let resultText = '';
-                    const finalUserData = getUserData(message.author.id);
-
-                    if (finalDealerTotal > 21) {
-                        finalUserData.cash += (bet * 2);
-                        resultText = `\n\n🪙 ~ You won ${bet.toLocaleString()} cowoncy! (Dealer Bust)`;
-                    } else if (finalPlayerTotal > finalDealerTotal) {
-                        finalUserData.cash += (bet * 2);
-                        resultText = `\n\n🪙 ~ You won ${bet.toLocaleString()} cowoncy!`;
-                    } else if (finalPlayerTotal < finalDealerTotal) {
-                        resultText = `\n\n🪙 ~ You lost ${bet.toLocaleString()} cowoncy!`;
-                    } else {
-                        finalUserData.cash += bet;
-                        resultText = `\n\n🪙 ~ You tied!`;
-                    }
-                    saveDB();
-
-                    return msg.edit(generateBjEmbed(true, resultText));
-                }, 1200);
+                await i.update(generateBjEmbed('playing', '', true));
+                setTimeout(() => { triggerDealerTurn(); }, 1200);
             }
         });
+
+        // Fungsi giliran dealer setelah pemain selesai menambah kartu
+        function triggerDealerTurn() {
+            dealerHandVisible.push(dealerHiddenCard);
+            
+            if (playerHandVisible.length === 1) {
+                playerHandVisible.push(playerHiddenCard);
+            }
+
+            let dTotal = getHandValue(dealerHandVisible);
+            let pTotal = getHandValue(playerHandVisible);
+
+            // Dealer menarik kartu kecil lanjutan hingga batas aman minimal 17
+            while (dTotal < 17 && dTotal < pTotal && dealerHandVisible.length < 5) {
+                dealerHandVisible.push(getSmallBjCard());
+                dTotal = getHandValue(dealerHandVisible);
+            }
+
+            let finalPlayerTotal = getHandValue(playerHandVisible);
+            let finalDealerTotal = getHandValue(dealerHandVisible);
+
+            let resultText = '';
+            let endStatus = 'lost';
+            const finalUserData = getUserData(message.author.id);
+
+            if (finalDealerTotal > 21) {
+                finalUserData.cash += (bet * 2);
+                resultText = `\n\n🪙 ~ You won ${bet.toLocaleString()} cowoncy! (Dealer Bust)`;
+                endStatus = 'won';
+            } else if (finalPlayerTotal > finalDealerTotal) {
+                finalUserData.cash += (bet * 2);
+                resultText = `\n\n🪙 ~ You won ${bet.toLocaleString()} cowoncy!`;
+                endStatus = 'won';
+            } else if (finalPlayerTotal < finalDealerTotal) {
+                resultText = `\n\n🪙 ~ You lost ${bet.toLocaleString()} cowoncy!`;
+                endStatus = 'lost';
+            } else {
+                finalUserData.cash += bet;
+                resultText = `\n\n🪙 ~ You tied!`;
+                endStatus = 'tied';
+            }
+            saveDB();
+
+            return msg.edit(generateBjEmbed(endStatus, resultText));
+        }
 
         collector.on('end', (collected, reason) => {
             if (reason === 'time') {
