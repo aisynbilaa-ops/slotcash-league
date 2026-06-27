@@ -1,3 +1,10 @@
+const { 
+    Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, 
+    ButtonStyle, EmbedBuilder, ModalBuilder, TextInputBuilder, 
+    TextInputStyle, StringSelectMenuBuilder, ComponentType 
+} = require('discord.js');
+
+const fs = require('fs');
 const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require('discord.js');
 const fs = require('fs');
 
@@ -25,6 +32,127 @@ const EMOJI_SLOTS = [
     '<:emoji_3:1519947110206935140>',
     '<:manis:1519947169946406963>',
     '<:pisang:1519947217215946822>'
+];
+
+// ================= KONFIGURASI WHO IS THE SPY =================
+const activeSpyGames = new Map(); // Menyimpan sesi game per channel
+
+const EXTRA_SPY_WORDS = [
+    // Makanan & Minuman
+    { normal: 'Nasi Goreng', spy: 'Mie Goreng' }, { normal: 'Bakso', spy: 'Mie Ayam' },
+    { normal: 'Sate', spy: 'Tongseng' }, { normal: 'Rendang', spy: 'Gulai' },
+    { normal: 'Gado-gado', spy: 'Ketoprak' }, { normal: 'Es Teh', spy: 'Es Jeruk' },
+    { normal: 'Kopi Susu', spy: 'Kopi Hitam' }, { normal: 'Martabak Manis', spy: 'Martabak Telur' },
+    { normal: 'Bubur Ayam', spy: 'Nasi Uduk' }, { normal: 'Soto', spy: 'Rawon' },
+    { normal: 'Sambal', spy: 'Kecap' }, { normal: 'Tempe', spy: 'Tahu' },
+    { normal: 'Kerupuk', spy: 'Rempeyek' }, { normal: 'Pecel', spy: 'Lotek' },
+    { normal: 'Cendol', spy: 'Dawet' }, { normal: 'Roti Bakar', spy: 'Pisang Bakar' },
+    { normal: 'Indomie', spy: 'Mie Sedap' }, { normal: 'Siomay', spy: 'Batagor' },
+
+    // Transportasi & Jalanan
+    { normal: 'Ojek', spy: 'Taksi' }, { normal: 'Angkot', spy: 'Bus' },
+    { normal: 'Motor', spy: 'Sepeda' }, { normal: 'Mobil', spy: 'Truk' },
+    { normal: 'Helm', spy: 'Jas Hujan' }, { normal: 'Lampu Merah', spy: 'Lampu Kuning' },
+    { normal: 'Trotoar', spy: 'Jembatan Penyeberangan' }, { normal: 'Stasiun', spy: 'Terminal' },
+    { normal: 'Bandara', spy: 'Pelabuhan' }, { normal: 'Polisi Tidur', spy: 'Lubang Jalan' },
+
+    // Benda di Rumah
+    { normal: 'Kipas Angin', spy: 'AC' }, { normal: 'Sapu', spy: 'Pel' },
+    { normal: 'Kasur', spy: 'Bantal' }, { normal: 'Guling', spy: 'Selimut' },
+    { normal: 'Televisi', spy: 'Radio' }, { normal: 'Piring', spy: 'Mangkuk' },
+    { normal: 'Gelas', spy: 'Cangkir' }, { normal: 'Kompor', spy: 'Magic Com' },
+    { normal: 'Dispenser', spy: 'Galon' }, { normal: 'Handuk', spy: 'Sikat Gigi' },
+    { normal: 'Sabun', spy: 'Shampoo' }, { normal: 'Cermin', spy: 'Sisir' },
+    { normal: 'Pintu', spy: 'Jendela' }, { normal: 'Gorden', spy: 'Tirai' },
+    { normal: 'Sofa', spy: 'Kursi Kayu' }, { normal: 'Lampu', spy: 'Senter' },
+
+    // Sekolah & Kantor
+    { normal: 'Buku Tulis', spy: 'Buku Gambar' }, { normal: 'Penghapus', spy: 'Tipe-x' },
+    { normal: 'Penggaris', spy: 'Jangka' }, { normal: 'Tas', spy: 'Dompet' },
+    { normal: 'Seragam', spy: 'Batik' }, { normal: 'Papan Tulis', spy: 'Proyektor' },
+    { normal: 'Guru', spy: 'Dosen' }, { normal: 'Murid', spy: 'Mahasiswa' },
+    { normal: 'Kertas', spy: 'Amplop' }, { normal: 'Printer', spy: 'Scanner' },
+    { normal: 'Laptop', spy: 'Tablet' }, { normal: 'Keyboard', spy: 'Mouse' },
+
+    // Alam & Luar Ruangan
+    { normal: 'Gunung', spy: 'Bukit' }, { normal: 'Pantai', spy: 'Laut' },
+    { normal: 'Pohon', spy: 'Semak' }, { normal: 'Bunga', spy: 'Rumput' },
+    { normal: 'Awan', spy: 'Kabut' }, { normal: 'Petir', spy: 'Guntur' },
+    { normal: 'Pasir', spy: 'Tanah' }, { normal: 'Batu', spy: 'Kerikil' },
+    { normal: 'Ikan', spy: 'Udang' }, { normal: 'Burung', spy: 'Kupu-kupu' },
+    { normal: 'Malam', spy: 'Siang' }, { normal: 'Senja', spy: 'Fajar' },
+
+    // Profesi
+    { normal: 'Petani', spy: 'Nelayan' }, { normal: 'Pedagang', spy: 'Pembeli' },
+    { normal: 'Pilot', spy: 'Masinis' }, { normal: 'Koki', spy: 'Pelayan' },
+    { normal: 'Satpam', spy: 'Bodyguard' }, { normal: 'Artis', spy: 'Influencer' },
+    { normal: 'Atlet', spy: 'Wasit' }, { normal: 'Penyanyi', spy: 'Penari' },
+    { normal: 'Arsitek', spy: 'Insinyur' }, { normal: 'Montir', spy: 'Supir' },
+
+    // Random / Budaya Indo
+    { normal: 'Warteg', spy: 'Angkringan' }, { normal: 'Pondok Pesantren', spy: 'Sekolah' },
+    { normal: 'Pos Ronda', spy: 'Balai Desa' }, { normal: 'Pasar', spy: 'Supermarket' },
+    { normal: 'Mall', spy: 'Alun-alun' }, { normal: 'Warnet', spy: 'Game Center' },
+    { normal: 'Kondangan', spy: 'Arisan' }, { normal: 'Pengajian', spy: 'Kebaktian' },
+    { normal: 'Sepak Bola', spy: 'Futsal' }, { normal: 'Bulutangkis', spy: 'Tenis Meja' },
+    { normal: 'Main Layangan', spy: 'Main Kelereng' }, { normal: 'Petak Umpet', spy: 'Benteng' },
+    { normal: 'Tahlilan', spy: 'Syukuran' }, { normal: 'Lebaran', spy: 'Tahun Baru' },
+    { normal: 'Mudik', spy: 'Liburan' }, { normal: 'KTP', spy: 'SIM' },
+    { normal: 'Baju Tidur', spy: 'Baju Renang' }, { normal: 'Topi', spy: 'Ikat Kepala' },
+    { normal: 'Dasi', spy: 'Sabuk' }, { normal: 'Kaos Kaki', spy: 'Sarung Tangan' },
+    { normal: 'Payung', spy: 'Jas Hujan' }, { normal: 'Senter', spy: 'Lilin' },
+    { normal: 'Korek Api', spy: 'Korek Gas' }, { normal: 'Obeng', spy: 'Tang' },
+    { normal: 'Palu', spy: 'Gergaji' }, { normal: 'Kabel', spy: 'Colokan' },
+    { normal: 'Baterai', spy: 'Powerbank' }, { normal: 'Speaker', spy: 'Headset' },
+    { normal: 'Kamera', spy: 'Handphone' }, { normal: 'Jam Tangan', spy: 'Jam Dinding' },
+    { normal: 'Kalender', spy: 'Buku Diary' }, { normal: 'Bantal Kursi', spy: 'Keset' },
+    { normal: 'Timbangan', spy: 'Meteran' }, { normal: 'Parfum', spy: 'Deodoran' },
+    { normal: 'Lipstik', spy: 'Bedak' }, { normal: 'Sisir', spy: 'Jepitan Rambut' },
+    { normal: 'Tas Sekolah', spy: 'Tas Laptop' }, { normal: 'Koper', spy: 'Tas Ransel' },
+    { normal: 'Botol Minum', spy: 'Tumblr' }, { normal: 'Kotak Makan', spy: 'Piring Plastik' },
+    { normal: 'Sapu Lidi', spy: 'Kemoceng' }, { normal: 'Ember', spy: 'Gayung' },
+    { normal: 'Handuk', spy: 'Tisu' }, { normal: 'Sabun Cair', spy: 'Sabun Batang' },
+    { normal: 'Pasta Gigi', spy: 'Obat Kumur' }, { normal: 'Sikat', spy: 'Busa' },
+    { normal: 'Baju', spy: 'Celana' }, { normal: 'Jaket', spy: 'Rompi' },
+    { normal: 'Sandal Jepit', spy: 'Sepatu Kets' }, { normal: 'Kacamata Hitam', spy: 'Topi Pantai' },
+    { normal: 'Dompet', spy: 'Tas Pinggang' }, { normal: 'Cincin', spy: 'Gelang' },
+    { normal: 'Kalung', spy: 'Anting' }, { normal: 'Payung Lipat', spy: 'Jas Hujan Ponco' },
+    { normal: 'Kipas Lipat', spy: 'Kipas Listrik' }, { normal: 'Tikar', spy: 'Karpet' },
+    { normal: 'Sprei', spy: 'Sarung Bantal' }, { normal: 'Gordyn', spy: 'Krey' },
+    { normal: 'Hanger', spy: 'Jemuran' }, { normal: 'Jepitan Baju', spy: 'Tali Jemuran' },
+    { normal: 'Parutan', spy: 'Ulekan' }, { normal: 'Telenan', spy: 'Pisau' },
+    { normal: 'Saringan', spy: 'Corong' }, { normal: 'Teko', spy: 'Termos' },
+    { normal: 'Wajan', spy: 'Panci' }, { normal: 'Spatula', spy: 'Sendok Sayur' },
+    { normal: 'Tutup Panci', spy: 'Tatakan Piring' }, { normal: 'Tisu Makan', spy: 'Serbet' },
+    { normal: 'Alat Pancing', spy: 'Jaring Ikan' }, { normal: 'Umpan', spy: 'Kail' },
+    { normal: 'Pelampung', spy: 'Jaket Renang' }, { normal: 'Kacamata Renang', spy: 'Topi Renang' },
+    { normal: 'Rak Sepatu', spy: 'Rak Buku' }, { normal: 'Lemari Baju', spy: 'Lemari Makan' },
+    { normal: 'Meja Makan', spy: 'Meja Belajar' }, { normal: 'Kursi Tamu', spy: 'Kursi Malas' },
+    { normal: 'Jam Weker', spy: 'Alarm HP' }, { normal: 'Kalender Dinding', spy: 'Agenda' },
+    { normal: 'Peta', spy: 'Kompas' }, { normal: 'Senter Kepala', spy: 'Lampu Belajar' },
+    { normal: 'Korek Api Kayu', spy: 'Pemantik' }, { normal: 'Obeng Plus', spy: 'Obeng Minus' },
+    { normal: 'Palu Besi', spy: 'Palu Kayu' }, { normal: 'Lakban', spy: 'Lem' },
+    { normal: 'Kabel Roll', spy: 'Stop Kontak' }, { normal: 'Baterai Cas', spy: 'Baterai Biasa' },
+    { normal: 'Speaker Aktif', spy: 'Earphone' }, { normal: 'Kamera DSLR', spy: 'Webcam' },
+    { normal: 'Jam Tangan Digital', spy: 'Jam Tangan Analog' }, { normal: 'Kalender Meja', spy: 'Catatan Tempel' },
+    { normal: 'Bantal Leher', spy: 'Bantal Sofa' }, { normal: 'Timbangan Badan', spy: 'Timbangan Dapur' },
+    { normal: 'Parfum Mobil', spy: 'Pengharum Ruangan' }, { normal: 'Lip Balm', spy: 'Lip Gloss' },
+    { normal: 'Sisir Sasak', spy: 'Sisir Bulat' }, { normal: 'Tas Serut', spy: 'Tas Belanja' },
+    { normal: 'Botol Kaca', spy: 'Botol Plastik' }, { normal: 'Kotak Bekal', spy: 'Bento Box' },
+    { normal: 'Sapu Lantai', spy: 'Vacuum Cleaner' }, { normal: 'Ember Plastik', spy: 'Bak Mandi' },
+    { normal: 'Handuk Mandi', spy: 'Handuk Muka' }, { normal: 'Sabun Muka', spy: 'Sabun Cuci Tangan' },
+    { normal: 'Pasta Gigi Anak', spy: 'Pasta Gigi Herbal' }, { normal: 'Sikat Cuci', spy: 'Spons Cuci Piring' },
+    { normal: 'Kemeja', spy: 'Kaos' }, { normal: 'Jaket Hoodie', spy: 'Sweater' },
+    { normal: 'Sandal Selop', spy: 'Sepatu Boots' }, { normal: 'Kacamata Baca', spy: 'Kacamata Renang' },
+    { normal: 'Dompet Koin', spy: 'Tempat Kartu' }, { normal: 'Cincin Kawin', spy: 'Cincin Batu' },
+    { normal: 'Kalung Emas', spy: 'Kalung Manik-manik' }, { normal: 'Payung Golf', spy: 'Payung Hujan' },
+    { normal: 'Tikar Lipat', spy: 'Matras Yoga' }, { normal: 'Sprei Waterproof', spy: 'Sprei Katun' },
+    { normal: 'Gordyn Blackout', spy: 'Gordyn Tipis' }, { normal: 'Hanger Kayu', spy: 'Hanger Plastik' },
+    { normal: 'Jepitan Jemuran', spy: 'Peniti' }, { normal: 'Parutan Keju', spy: 'Parutan Kelapa' },
+    { normal: 'Telenan Kayu', spy: 'Telenan Plastik' }, { normal: 'Saringan Teh', spy: 'Saringan Santan' },
+    { normal: 'Teko Listrik', spy: 'Teko Tanah' }, { normal: 'Wajan Teflon', spy: 'Wajan Besi' },
+    { normal: 'Spatula Kayu', spy: 'Spatula Silikon' }, { normal: 'Tisu Toilet', spy: 'Tisu Wajah' },
+    { normal: 'Kail Pancing', spy: 'Jala' }, { normal: 'Pelampung Renang', spy: 'Papan Seluncur' }
 ];
 
 // --- KONFIGURASI TAMBAHAN ---
@@ -126,9 +254,17 @@ function saveDB() {
 
 function getUserData(userId) {
     if (!db.users[userId]) {
-        db.users[userId] = { cash: STARTING_CASH, lastDaily: 0 };
+        db.users[userId] = { cash: STARTING_CASH, lastDaily: 0, spyPoints: 0 };
         saveDB();
     }
+
+    if (db.users[userId].spyPoints === undefined) {
+        db.users[userId].spyPoints = 0;
+        saveDB();
+    }
+
+    return db.users[userId];
+
     return db.users[userId];
 }
 
@@ -266,6 +402,351 @@ client.on('messageCreate', async (message) => {
     if (command === 'scash') {
         const userData = getUserData(message.author.id);
         return message.reply(`💵 | **${message.author.username}**, saat ini kamu memiliki **${userData.cash.toLocaleString()}** cash!`);
+    }
+
+// ================= COMMAND: CEK POIN SPY (/cpspay) =================
+    if (command === 'cpspay' || command === 'cpspy') {
+        const userData = getUserData(message.author.id);
+        return message.reply(`🕵️ | **${message.author.username}**, total Spy Points kamu saat ini adalah: **${userData.spyPoints.toLocaleString()}** poin!`);
+    }
+
+    // ================= COMMAND: TOP SPY (/topspy) =================
+    if (command === 'topspy') {
+        const sortedSpies = Object.entries(db.users)
+            .map(([id, data]) => ({ id, points: data.spyPoints || 0 }))
+            .sort((a, b) => b.points - a.points)
+            .slice(0, 5);
+
+        let lbText = '';
+        for (let i = 0; i < sortedSpies.length; i++) {
+            if (sortedSpies[i].points <= 0) continue;
+            try {
+                const user = await client.users.fetch(sortedSpies[i].id);
+                lbText += `${i + 1}. **${user.username}** — 🕵️ ${sortedSpies[i].points.toLocaleString()} pts\n`;
+            } catch {
+                lbText += `${i + 1}. **User Keluar** — 🕵️ ${sortedSpies[i].points.toLocaleString()} pts\n`;
+            }
+        }
+
+        const embed = new EmbedBuilder()
+            .setColor('#ffc0cb')
+            .setTitle('🏆 TOP 5 MASTER SPY 🏆')
+            .setDescription(lbText || 'Belum ada agen yang mencetak poin.');
+        return message.reply({ embeds: [embed] });
+    }
+
+    // ================= COMMAND UTAMA: WHO IS THE SPY =================
+    if (command === 'spy' && args[0]?.toLowerCase() === 'start') {
+        if (activeSpyGames.has(message.channel.id)) {
+            return message.reply('❌ Sedang ada permainan Spy yang berlangsung di channel ini!');
+        }
+
+        let gameState = {
+            host: message.author.id,
+            players: [message.author.id],
+            maxRounds: 5,
+            currentRound: 1,
+            clues: {}, // Menyimpan semua ciri-ciri yang diketik
+            status: 'lobby' // lobby, playing, voting
+        };
+        activeSpyGames.set(message.channel.id, gameState);
+
+        const buildLobbyEmbed = () => new EmbedBuilder()
+            .setColor('#ffc0cb')
+            .setTitle('🕵️ WHO IS THE SPY? (Lobby)')
+            .setDescription(`**Host:** <@${gameState.host}>\nMinimal 4 - Maksimal 10 Pemain.\n\n**Pemain Terdaftar (${gameState.players.length}/10):**\n${gameState.players.map(p => `<@${p}>`).join('\n')}`);
+
+        const lobbyRow = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('spy_join').setLabel('Gabung').setStyle(ButtonStyle.Primary),
+            new ButtonBuilder().setCustomId('spy_start').setLabel('Mulai Game (Host)').setStyle(ButtonStyle.Success)
+        );
+
+        const lobbyMsg = await message.channel.send({ embeds: [buildLobbyEmbed()], components: [lobbyRow] });
+        const lobbyCollector = lobbyMsg.createMessageComponentCollector({ time: 120000 });
+
+        lobbyCollector.on('collect', async i => {
+            if (i.customId === 'spy_join') {
+                if (gameState.players.includes(i.user.id)) return i.reply({ content: 'Kamu sudah bergabung!', ephemeral: true });
+                if (gameState.players.length >= 10) return i.reply({ content: 'Lobby penuh!', ephemeral: true });
+                gameState.players.push(i.user.id);
+                await i.update({ embeds: [buildLobbyEmbed()] });
+            }
+
+            if (i.customId === 'spy_start') {
+                if (i.user.id !== gameState.host) return i.reply({ content: 'Hanya host yang bisa memulai game!', ephemeral: true });
+                if (gameState.players.length < 4) return i.reply({ content: 'Dibutuhkan minimal 4 pemain untuk bermain!', ephemeral: true });
+
+                lobbyCollector.stop('start');
+                gameState.status = 'playing';
+
+                // Setup Roles
+                const wordPair = SPY_WORD_PAIRS[Math.floor(Math.random() * SPY_WORD_PAIRS.length)];
+                gameState.spyId = gameState.players[Math.floor(Math.random() * gameState.players.length)];
+                gameState.wordNormal = wordPair.normal;
+                gameState.wordSpy = wordPair.spy;
+                gameState.turnIndex = 0;
+
+                // DM Pemain
+                let dmFailed = false;
+                for (const playerId of gameState.players) {
+                    try {
+                        const user = await client.users.fetch(playerId);
+                        const isSpy = playerId === gameState.spyId;
+                        const roleEmbed = new EmbedBuilder()
+                            .setColor('#ffc0cb')
+                            .setTitle('Tugas Rahasia Kamu 🕵️')
+                            .setDescription(`Kamu adalah **${isSpy ? 'SPY' : 'INNOCENT'}**\nKata kamu adalah: **${isSpy ? gameState.wordSpy : gameState.wordNormal}**\n\n*Jangan beritahu siapapun kata ini!*`);
+                        await user.send({ embeds: [roleEmbed] });
+                        gameState.clues[playerId] = [];
+                    } catch (err) {
+                        dmFailed = true;
+                    }
+                }
+
+                if (dmFailed) {
+                    message.channel.send('⚠️ **PERINGATAN:** Beberapa pemain mungkin tidak menerima DM rahasia karena pengaturan privasi mereka ditutup!');
+                }
+
+                await i.update({ content: 'Permainan Dimulai! Cek DM kamu untuk melihat kata rahasia.', embeds: [], components: [] });
+                startInterrogationPhase(message.channel, gameState);
+            }
+        });
+
+        lobbyCollector.on('end', (c, reason) => {
+            if (reason === 'time') {
+                activeSpyGames.delete(message.channel.id);
+                lobbyMsg.edit({ content: 'Waktu lobby habis. Game dibatalkan.', embeds: [], components: [] }).catch(()=>{});
+            }
+        });
+    }
+
+    // Fungsi Interogasi (Tanya Jawab)
+    async function startInterrogationPhase(channel, gameState) {
+        if (gameState.currentRound > gameState.maxRounds) return startVotingPhase(channel, gameState);
+
+        const currentPlayerId = gameState.players[gameState.turnIndex];
+        
+        let historyDesc = `**Round ${gameState.currentRound} / ${gameState.maxRounds}**\n\n`;
+        gameState.players.forEach(pId => {
+            const userClues = gameState.clues[pId].map((c, idx) => `[R${idx+1}]: ${c}`).join(' | ');
+            historyDesc += `🔹 <@${pId}>: ${userClues || '*Belum ada ciri-ciri*'}\n`;
+        });
+
+        const turnEmbed = new EmbedBuilder()
+            .setColor('#ffc0cb')
+            .setTitle('🎙️ Sesi Interogasi')
+            .setDescription(`${historyDesc}\n\n👉 **GILIRAN:** <@${currentPlayerId}>\nTekan tombol di bawah untuk memberikan ciri-ciri kata milikmu.`);
+
+        const turnRow = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId(`clue_${currentPlayerId}`).setLabel('Beri Ciri Ciri').setStyle(ButtonStyle.Primary),
+            new ButtonBuilder().setCustomId('force_vote').setLabel('Lanjut Voting (Host)').setStyle(ButtonStyle.Danger)
+        );
+
+        const turnMsg = await channel.send({ content: `<@${currentPlayerId}>`, embeds: [turnEmbed], components: [turnRow] });
+        const turnCollector = turnMsg.createMessageComponentCollector({ time: 90000 }); // 90 detik per giliran
+
+        turnCollector.on('collect', async i => {
+            if (i.customId === 'force_vote') {
+                if (i.user.id !== gameState.host) return i.reply({ content: 'Hanya host yang bisa mempercepat ke sesi voting!', ephemeral: true });
+                turnCollector.stop('forced');
+                await i.update({ content: '⏩ Host memotong sesi interogasi. Melanjutkan ke sesi voting...', embeds: [], components: [] });
+                return startVotingPhase(channel, gameState);
+            }
+
+            if (i.customId.startsWith('clue_')) {
+                if (i.user.id !== currentPlayerId) return i.reply({ content: 'Bukan giliranmu!', ephemeral: true });
+
+                // Tampilkan Modal
+                const modal = new ModalBuilder().setCustomId('clue_modal').setTitle('Masukkan Ciri-Ciri Kata Kamu');
+                const clueInput = new TextInputBuilder()
+                    .setCustomId('clue_text').setLabel("Deskripsikan kata rahasiamu (Singkat)")
+                    .setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(50);
+                
+                modal.addComponents(new ActionRowBuilder().addComponents(clueInput));
+                await i.showModal(modal);
+
+                try {
+                    const modalSubmit = await i.awaitModalSubmit({ time: 60000, filter: mi => mi.user.id === currentPlayerId });
+                    const clue = modalSubmit.fields.getTextInputValue('clue_text');
+                    
+                    gameState.clues[currentPlayerId].push(clue);
+                    turnCollector.stop('answered');
+                    await modalSubmit.update({ content: `✅ Ciri-ciri diterima!`, embeds: [], components: [] });
+
+                    // Pindah giliran
+                    gameState.turnIndex++;
+                    if (gameState.turnIndex >= gameState.players.length) {
+                        gameState.turnIndex = 0;
+                        gameState.currentRound++;
+                    }
+                    startInterrogationPhase(channel, gameState);
+
+                } catch (err) {
+                    turnCollector.stop('timeout');
+                    channel.send(`<@${currentPlayerId}> terlalu lama mengisi! Lanjut ke giliran berikutnya.`);
+                    gameState.turnIndex++;
+                    if (gameState.turnIndex >= gameState.players.length) {
+                        gameState.turnIndex = 0;
+                        gameState.currentRound++;
+                    }
+                    startInterrogationPhase(channel, gameState);
+                }
+            }
+        });
+
+        turnCollector.on('end', (c, reason) => {
+            if (reason === 'time') {
+                channel.send(`Waktu habis untuk <@${currentPlayerId}>! Lanjut giliran.`);
+                gameState.turnIndex++;
+                if (gameState.turnIndex >= gameState.players.length) {
+                    gameState.turnIndex = 0;
+                    gameState.currentRound++;
+                }
+                startInterrogationPhase(channel, gameState);
+            }
+        });
+    }
+
+    // Fungsi Voting
+    async function startVotingPhase(channel, gameState) {
+        gameState.status = 'voting';
+        const votes = {}; 
+        
+        const options = gameState.players.map(p => ({
+            label: `Vote: Player ${p.substring(p.length - 4)}`, // Fallback jika tidak fetch
+            value: p,
+            description: `Tuduh pemain ini sebagai Spy`
+        }));
+
+        const voteMenu = new StringSelectMenuBuilder()
+            .setCustomId('vote_menu')
+            .setPlaceholder('Pilih siapa yang kamu curigai...')
+            .addOptions(options);
+
+        const voteEmbed = new EmbedBuilder()
+            .setColor('#ffc0cb')
+            .setTitle('🗳️ TAHAP VOTING')
+            .setDescription('Waktunya menebak! Siapa mata-matanya? Pilih dari menu di bawah.\nWaktu: 60 detik.');
+
+        const voteMsg = await channel.send({ content: gameState.players.map(p => `<@${p}>`).join(' '), embeds: [voteEmbed], components: [new ActionRowBuilder().addComponents(voteMenu)] });
+        const voteCollector = voteMsg.createMessageComponentCollector({ componentType: ComponentType.StringSelect, time: 60000 });
+
+        voteCollector.on('collect', async i => {
+            if (!gameState.players.includes(i.user.id)) return i.reply({ content: 'Kamu bukan bagian dari game ini!', ephemeral: true });
+            votes[i.user.id] = i.values[0];
+            await i.reply({ content: `Tuduhanmu telah direkam secara rahasia.`, ephemeral: true });
+
+            if (Object.keys(votes).length === gameState.players.length) {
+                voteCollector.stop('all_voted');
+            }
+        });
+
+        voteCollector.on('end', async () => {
+            await voteMsg.edit({ components: [] });
+            
+            // Hitung hasil vote
+            const tally = {};
+            Object.values(votes).forEach(v => tally[v] = (tally[v] || 0) + 1);
+            
+            let highestVoteTarget = null;
+            let highestVoteCount = 0;
+            
+            for (const [target, count] of Object.entries(tally)) {
+                if (count > highestVoteCount) {
+                    highestVoteCount = count;
+                    highestVoteTarget = target;
+                }
+            }
+
+            const halfPlayers = Math.ceil(gameState.players.length / 2);
+            let resultDesc = `**Hasil Voting:**\n`;
+            for (const [target, count] of Object.entries(tally)) {
+                resultDesc += `<@${target}> mendapat ${count} suara.\n`;
+            }
+
+            // Kondisi Jika Spy Tertangkap (>50% votes)
+            if (highestVoteTarget === gameState.spyId && highestVoteCount >= halfPlayers) {
+                resultDesc += `\n🚨 **SPY TERTANGKAP!** Identitas Spy adalah <@${gameState.spyId}>!\nNamun, Spy memiliki satu kesempatan terakhir. Jika Spy bisa menebak kata asli yang dimiliki pemain lain, Spy memenangkan game ini!`;
+                
+                const finalEmbed = new EmbedBuilder().setColor('#ffc0cb').setTitle('Spy Tertangkap!').setDescription(resultDesc);
+                const spyRow = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('spy_guess').setLabel('Spy: Tebak Kata Asli').setStyle(ButtonStyle.Danger));
+                
+                const finalMsg = await channel.send({ embeds: [finalEmbed], components: [spyRow] });
+                const spyCollector = finalMsg.createMessageComponentCollector({ time: 45000 });
+                
+                spyCollector.on('collect', async i => {
+                    if (i.customId === 'spy_guess') {
+                        if (i.user.id !== gameState.spyId) return i.reply({ content: 'Hanya Spy yang bisa menebak!', ephemeral: true });
+                        
+                        const modal = new ModalBuilder().setCustomId('spy_word_modal').setTitle('Kesempatan Terakhir');
+                        const wordInput = new TextInputBuilder().setCustomId('spy_word_text').setLabel("Tebak kata asli mereka").setStyle(TextInputStyle.Short).setRequired(true);
+                        modal.addComponents(new ActionRowBuilder().addComponents(wordInput));
+                        
+                        await i.showModal(modal);
+                        try {
+                            const mSubmit = await i.awaitModalSubmit({ time: 30000, filter: mi => mi.user.id === gameState.spyId });
+                            const guess = mSubmit.fields.getTextInputValue('spy_word_text').trim().toLowerCase();
+                            spyCollector.stop();
+                            
+                            if (guess === gameState.wordNormal.toLowerCase()) {
+                                handleWin(channel, gameState, 'spy', `🤯 SPY <@${gameState.spyId}> BENAR! Kata aslinya adalah **${gameState.wordNormal}**. Spy membalikkan keadaan dan Menang!`);
+                            } else {
+                                handleWin(channel, gameState, 'innocent', `❌ Tebakan Spy salah! (Dia menebak: ${guess}). Kata aslinya adalah **${gameState.wordNormal}**. Innocents Menang!`);
+                            }
+                            await mSubmit.update({ components: [] });
+                        } catch(e) {}
+                    }
+                });
+
+                spyCollector.on('end', (c, reason) => {
+                    if (reason === 'time') {
+                        handleWin(channel, gameState, 'innocent', `⏱️ Waktu habis! Spy tidak menebak. Kata aslinya adalah **${gameState.wordNormal}**. Innocents Menang!`);
+                        finalMsg.edit({ components: [] }).catch(()=>{});
+                    }
+                });
+
+            } else {
+                // Spy Berhasil Lolos
+                resultDesc += `\n👻 **SPY LOLOS!** Kalian gagal menebak dengan suara mayoritas, atau kalian menuduh orang yang salah. Spy sebenarnya adalah <@${gameState.spyId}>!`;
+                handleWin(channel, gameState, 'spy', resultDesc);
+            }
+        });
+    }
+
+    // Eksekusi Pemenang dan Pembagian Poin
+    function handleWin(channel, gameState, winner, messageDesc) {
+        const spyReward = 500;
+        const innocentReward = Math.floor(200 / (gameState.players.length - 1)); // Poin dibagi rata
+        
+        let pointsDesc = `\n\n**HADIAH POIN:**\n`;
+        
+        if (winner === 'spy') {
+            const sData = getUserData(gameState.spyId);
+            sData.spyPoints += spyReward;
+            pointsDesc += `🕵️ <@${gameState.spyId}> (Spy) mendapatkan **+${spyReward}** Spy Points!\n👥 Pemain lain mendapatkan **0** poin.`;
+        } else {
+            gameState.players.forEach(p => {
+                if (p !== gameState.spyId) {
+                    const pData = getUserData(p);
+                    pData.spyPoints += innocentReward;
+                }
+            });
+            pointsDesc += `👥 Para Innocent mendapatkan masing-masing **+${innocentReward}** Spy Points!\n🕵️ Spy mendapatkan **0** poin.`;
+        }
+        
+        saveDB();
+        activeSpyGames.delete(channel.id);
+        
+        const winEmbed = new EmbedBuilder()
+            .setColor(winner === 'spy' ? '#ED4245' : '#57F287')
+            .setTitle('🏁 PERMAINAN SELESAI')
+            .setDescription(messageDesc + pointsDesc)
+            .addFields(
+                { name: 'Kata Innocent', value: gameState.wordNormal, inline: true },
+                { name: 'Kata Spy', value: gameState.wordSpy, inline: true }
+            );
+            
+        channel.send({ embeds: [winEmbed] });
     }
 
     // 6. Command: Kirim Uang (slotsend)
@@ -707,7 +1188,7 @@ client.on('messageCreate', async (message) => {
 
         const inviteEmbed = new EmbedBuilder()
             .setColor('#FFA500')
-            .setAuthor({ name: `${message.author.tag} | Mines PvP`, iconURL: message.author.displayAvatarURL({ dynamic: true }) })
+            .setAuthor({ name: `${message.author.tag} | DUEL MINE`, iconURL: message.author.displayAvatarURL({ dynamic: true }) })
             .setDescription(`💣 <@${message.author.id}> mengajak <@${targetUser.id}> berduel **Mines**!\n**Taruhan:** ${betAmt.toLocaleString()} cash\n\nSiapa yang terkena bom kalah! Klik **Setuju** untuk memulai!`);
 
         const inviteRow = new ActionRowBuilder().addComponents(
