@@ -540,6 +540,269 @@ client.on('messageCreate', async (message) => {
         });
     }
 
+// ================= PVP INVITE: BLACKJACK (sbj inv) =================
+    if (command === 'sbj' && args[0]?.toLowerCase() === 'inv') {
+        const targetUser = message.mentions.users.first();
+        const betAmt = parseInt(args[2]);
+
+        if (!targetUser || targetUser.bot || targetUser.id === message.author.id) {
+            return message.reply('❌ Format salah! Gunakan: `sbj inv @user <jumlah_taruhan>`');
+        }
+        if (isNaN(betAmt) || betAmt <= 0) return message.reply('❌ Masukkan jumlah taruhan yang valid!');
+
+        const authorData = getUserData(message.author.id);
+        const targetData = getUserData(targetUser.id);
+
+        if (authorData.cash < betAmt) return message.reply('❌ Saldo kamu tidak cukup!');
+        if (targetData.cash < betAmt) return message.reply(`❌ Saldo **${targetUser.username}** tidak cukup!`);
+
+        const inviteEmbed = new EmbedBuilder()
+            .setColor('#FFA500')
+            .setAuthor({ name: `${message.author.tag} | Blackjack PvP`, iconURL: message.author.displayAvatarURL({ dynamic: true }) })
+            .setDescription(`<:20502pinkswordsrankicon:1520409173798686832> <@${message.author.id}> mengajak <@${targetUser.id}> berduel **Blackjack**!\n**Taruhan:** ${betAmt.toLocaleString()} cash\n\nKlik **Setuju** untuk memulai!`);
+
+        const inviteRow = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('pvp_accept').setLabel('Setuju').setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId('pvp_decline').setLabel('Tolak').setStyle(ButtonStyle.Danger)
+        );
+
+        const inviteMsg = await message.reply({ content: `<@${targetUser.id}>`, embeds: [inviteEmbed], components: [inviteRow] });
+        
+        const filter = i => [message.author.id, targetUser.id].includes(i.user.id);
+        const inviteCollector = inviteMsg.createMessageComponentCollector({ filter, time: 30000 });
+
+        inviteCollector.on('collect', async i => {
+            if (i.customId === 'pvp_decline') {
+                if (i.user.id !== targetUser.id) return i.reply({ content: 'hanya yang diajak yang bisa menolak!', ephemeral: true });
+                inviteCollector.stop();
+                return i.update({ content: `❌ <@${targetUser.id}> menolak ajakan duel.`, embeds: [], components: [] });
+            }
+
+            if (i.customId === 'pvp_accept') {
+                if (i.user.id !== targetUser.id) return i.reply({ content: 'Hanya yang diajak yang bisa menerima!', ephemeral: true });
+                inviteCollector.stop();
+
+                // Potong saldo
+                authorData.cash -= betAmt;
+                targetData.cash -= betAmt;
+                saveDB();
+
+                let p1Hand = [getRandomBjCard(), getRandomBjCard()];
+                let p2Hand = [getRandomBjCard(), getRandomBjCard()];
+                let turn = message.author.id;
+                let gameOver = false;
+
+                const getVal = hand => {
+                    let t = 0, a = 0;
+                    for (const c of hand) { if (c.value === 1) { a++; t+=11; } else t+=c.value; }
+                    while (t > 21 && a > 0) { t -= 10; a--; }
+                    return t;
+                };
+
+                const buildGameEmbed = () => {
+                    let p1Score = getVal(p1Hand);
+                    let p2Score = getVal(p2Hand);
+                    
+                    const e = new EmbedBuilder()
+                        .setAuthor({ name: `Blackjack Duel | Taruhan: ${betAmt * 2}`, iconURL: message.guild.iconURL() })
+                        .setDescription(`**${message.author.username}** [${p1Score}]\n${p1Hand.map(c=>c.emoji).join(' ')}\n\n**${targetUser.username}** [${p2Score}]\n${p2Hand.map(c=>c.emoji).join(' ')}\n\n${gameOver ? '🏁 Permainan Selesai' : `🔥 Giliran: <@${turn}>`}`)
+                        .setColor(gameOver ? '#57F287' : '#5865F2');
+
+                    const r = new ActionRowBuilder().addComponents(
+                        new ButtonBuilder().setCustomId('duel_hit').setEmoji('<:next:1520401265455009905>').setStyle(ButtonStyle.Primary).setDisabled(gameOver),
+                        new ButtonBuilder().setCustomId('duel_stand').setEmoji('<:9219stop:1520401130990075904>').setStyle(ButtonStyle.Danger).setDisabled(gameOver)
+                    );
+                    return { embeds: [e], components: [r] };
+                };
+
+                await i.update({ content: 'DUEL DIMULAI!', embeds: [], components: [] });
+                const gameMsg = await message.channel.send(buildGameEmbed());
+                const gameCollector = gameMsg.createMessageComponentCollector({ time: 60000 });
+
+                gameCollector.on('collect', async action => {
+                    if (action.user.id !== turn) return action.reply({ content: 'Bukan giliranmu!', ephemeral: true });
+
+                    if (action.customId === 'duel_hit') {
+                        if (turn === message.author.id) p1Hand.push(getRandomBjCard());
+                        else p2Hand.push(getRandomBjCard());
+
+                        let currentTotal = turn === message.author.id ? getVal(p1Hand) : getVal(p2Hand);
+
+                        if (currentTotal > 21) {
+                            gameOver = true;
+                            gameCollector.stop();
+                            let winner = turn === message.author.id ? targetUser.id : message.author.id;
+                            getUserData(winner).cash += (betAmt * 2);
+                            saveDB();
+                            
+                            const em = buildGameEmbed();
+                            em.embeds[0].setDescription(em.embeds[0].data.description + `\n\n💥 <@${turn}> BUST! <@${winner}> menang ${betAmt*2} cash!`);
+                            return action.update(em);
+                        }
+                    }
+
+                    if (action.customId === 'duel_stand') {
+                        if (turn === message.author.id) {
+                            turn = targetUser.id; // Ganti giliran ke P2
+                        } else {
+                            gameOver = true;
+                            gameCollector.stop();
+                            let v1 = getVal(p1Hand), v2 = getVal(p2Hand);
+                            let winnerMsg = '';
+                            
+                            if (v1 > v2) {
+                                getUserData(message.author.id).cash += (betAmt * 2);
+                                winnerMsg = `<a:8232pepetada:1520410477237112833> <@${message.author.id}> win!`;
+                            } else if (v2 > v1) {
+                                getUserData(targetUser.id).cash += (betAmt * 2);
+                                winnerMsg = `<a:8232pepetada:1520410477237112833> <@${targetUser.id}> win!`;
+                            } else {
+                                getUserData(message.author.id).cash += betAmt;
+                                getUserData(targetUser.id).cash += betAmt;
+                                winnerMsg = `<:12870loading:1520411622156406785> Seri! Taruhan dikembalikan.`;
+                            }
+                            saveDB();
+                            const em = buildGameEmbed();
+                            em.embeds[0].setDescription(em.embeds[0].data.description + `\n\n${winnerMsg}`);
+                            return action.update(em);
+                        }
+                    }
+                    await action.update(buildGameEmbed());
+                });
+            }
+        });
+        return;
+    }
+
+    // ================= PVP INVITE: MINES (smine inv) =================
+    if (command === 'smine' && args[0]?.toLowerCase() === 'inv') {
+        const targetUser = message.mentions.users.first();
+        const betAmt = parseInt(args[2]);
+
+        if (!targetUser || targetUser.bot || targetUser.id === message.author.id) {
+            return message.reply('❌ Format salah! Gunakan: `smine inv @user <jumlah_taruhan>`');
+        }
+        if (isNaN(betAmt) || betAmt <= 0) return message.reply('❌ Masukkan jumlah taruhan yang valid!');
+
+        const authorData = getUserData(message.author.id);
+        const targetData = getUserData(targetUser.id);
+
+        if (authorData.cash < betAmt) return message.reply('❌ Saldo kamu tidak cukup!');
+        if (targetData.cash < betAmt) return message.reply(`❌ Saldo **${targetUser.username}** tidak cukup!`);
+
+        const inviteEmbed = new EmbedBuilder()
+            .setColor('#FFA500')
+            .setAuthor({ name: `${message.author.tag} | Mines PvP`, iconURL: message.author.displayAvatarURL({ dynamic: true }) })
+            .setDescription(`💣 <@${message.author.id}> mengajak <@${targetUser.id}> berduel **Mines**!\n**Taruhan:** ${betAmt.toLocaleString()} cash\n\nSiapa yang terkena bom kalah! Klik **Setuju** untuk memulai!`);
+
+        const inviteRow = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('mine_pvp_acc').setLabel('Setuju').setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId('mine_pvp_dec').setLabel('Tolak').setStyle(ButtonStyle.Danger)
+        );
+
+        const inviteMsg = await message.reply({ content: `<@${targetUser.id}>`, embeds: [inviteEmbed], components: [inviteRow] });
+        
+        const filter = i => [message.author.id, targetUser.id].includes(i.user.id);
+        const inviteCollector = inviteMsg.createMessageComponentCollector({ filter, time: 30000 });
+
+        inviteCollector.on('collect', async i => {
+            if (i.customId === 'mine_pvp_dec') {
+                if (i.user.id !== targetUser.id) return i.reply({ content: 'Hanya yang diajak yang bisa menolak!', ephemeral: true });
+                inviteCollector.stop();
+                return i.update({ content: `❌ <@${targetUser.id}> menolak ajakan duel.`, embeds: [], components: [] });
+            }
+
+            if (i.customId === 'mine_pvp_acc') {
+                if (i.user.id !== targetUser.id) return i.reply({ content: 'Hanya yang diajak yang bisa menerima!', ephemeral: true });
+                inviteCollector.stop();
+
+                // Potong saldo
+                authorData.cash -= betAmt;
+                targetData.cash -= betAmt;
+                saveDB();
+
+                let turnPlayer = Math.random() < 0.5 ? message.author.id : targetUser.id;
+                let bombs = [];
+                while(bombs.length < 2) {
+                    let r = Math.floor(Math.random() * 9);
+                    if(!bombs.includes(r)) bombs.push(r);
+                }
+                
+                let boardState = Array(9).fill("hidden");
+                let gameOver = false;
+                let safeClicks = 0;
+
+                const buildGrid = () => {
+                    const rows = [];
+                    for (let r = 0; r < 3; r++) {
+                        const row = new ActionRowBuilder();
+                        for (let c = 0; c < 3; c++) {
+                            let idx = r * 3 + c;
+                            let btn = new ButtonBuilder().setCustomId(`pvpmine_${idx}`);
+                            
+                            if (gameOver) {
+                                btn.setDisabled(true);
+                                if (bombs.includes(idx)) btn.setEmoji('💣').setStyle(ButtonStyle.Danger);
+                                else btn.setEmoji('💎').setStyle(ButtonStyle.Secondary);
+                            } else {
+                                if (boardState[idx] === "hidden") btn.setLabel('?').setStyle(ButtonStyle.Secondary);
+                                else btn.setEmoji('💎').setStyle(ButtonStyle.Primary).setDisabled(true);
+                            }
+                            row.addComponents(btn);
+                        }
+                        rows.push(row);
+                    }
+                    return rows;
+                };
+
+                const gameEmbed = new EmbedBuilder()
+                    .setColor('#5865F2')
+                    .setTitle('Mines Duel 💣')
+                    .setDescription(`Pot: **${betAmt * 2} cash**\nGiliran: <@${turnPlayer}> (Pilih kotak!)`);
+
+                await i.update({ content: 'Duel Dimulai!', embeds: [], components: [] });
+                const gameMsg = await message.channel.send({ embeds: [gameEmbed], components: buildGrid() });
+                const gameCollector = gameMsg.createMessageComponentCollector({ time: 60000 });
+
+                gameCollector.on('collect', async action => {
+                    if (action.user.id !== turnPlayer) return action.reply({ content: 'bukan giliranmu!', ephemeral: true });
+                    
+                    let idx = parseInt(action.customId.split('_')[1]);
+                    if (boardState[idx] !== "hidden") return action.deferUpdate();
+
+                    if (bombs.includes(idx)) {
+                        gameOver = true;
+                        gameCollector.stop();
+                        let winner = turnPlayer === message.author.id ? targetUser.id : message.author.id;
+                        getUserData(winner).cash += (betAmt * 2);
+                        saveDB();
+
+                        gameEmbed.setColor('#ED4245').setDescription(`💥 **BOM!** <@${turnPlayer}> terkena ledakan!\n🎉 <@${winner}> menang pot sebesar **${betAmt * 2}** cash!`);
+                        return action.update({ embeds: [gameEmbed], components: buildGrid() });
+                    } else {
+                        boardState[idx] = "safe";
+                        safeClicks++;
+                        
+                        if (safeClicks === 7) {
+                            gameOver = true;
+                            gameCollector.stop();
+                            getUserData(message.author.id).cash += betAmt;
+                            getUserData(targetUser.id).cash += betAmt;
+                            saveDB();
+                            gameEmbed.setColor('#57F287').setDescription(` <:12870loading:1520411622156406785>Semua berlian ditemukan! Permainan Seri, taruhan dikembalikan.`);
+                            return action.update({ embeds: [gameEmbed], components: buildGrid() });
+                        }
+
+                        turnPlayer = turnPlayer === message.author.id ? targetUser.id : message.author.id;
+                        gameEmbed.setDescription(`Pot: **${betAmt * 2} cash**\nGiliran: <@${turnPlayer}> (Pilih kotak!)`);
+                        return action.update({ embeds: [gameEmbed], components: buildGrid() });
+                    }
+                });
+            }
+        });
+        return;
+    }
+
     // ================= GAME BLACKJACK JUDI MURNI (sbj) =================
     if (command === 'sbj') {
         if (checkCooldown(message.author.id, 'sbj', message)) return;
@@ -622,27 +885,30 @@ client.on('messageCreate', async (message) => {
             let playerScoreText = `[${playerTotal}${status === 'playing' && playerHandVisible.length === 1 ? ' + ?' : ''}]`;
 
             if (isLoading) {
-                statusText = `\n\n${loadingEmoji} *Sedang membagikan/membuka kartu...*`;
+                statusText = `\n\n${loadingEmoji} *sedang membuka kartu...*`;
             }
 
             const embed = new EmbedBuilder()
-                .setDescription(`👤 <@${message.author.id}>, you bet ${bet.toLocaleString()} to play blackjack\n\n**Dealer ${dealerScoreText}**\n${dealerCardString}\n\n**${message.author.username} ${playerScoreText}**\n${playerCardString}${statusText}`);
+                .setAuthor({ 
+                    name: `${message.author.tag} | BLACKJACK`, 
+                    iconURL: message.author.displayAvatarURL({ dynamic: true }) 
+                })
+                .setDescription(`<:61152memberglow:1520406965933576354>  <@${message.author.id}>, you bet ${bet.toLocaleString()} to play blackjack\n\n**Dealer ${dealerScoreText}**\n${dealerCardString}\n\n**${message.author.username} ${playerScoreText}**\n${playerCardString}${statusText}`);
 
-            // Pewarnaan embed sesuai hasil permainan
             if (status === 'won') {
-                embed.setColor('#57F287'); // HIJAU
+                embed.setColor('#57F287');
             } else if (status === 'lost') {
-                embed.setColor('#ED4245'); // MERAH
+                embed.setColor('#ED4245');
             } else if (status === 'tied') {
-                embed.setColor('#57F287'); // HIJAU UNTUK SERI (UANG KEMBALI)
+                embed.setColor('#151414');
             } else {
-                embed.setColor('#5865F2'); // BIRU SAAT BERMAIN
+                embed.setColor('#5865F2');
             }
 
             const isGameOver = status !== 'playing';
             const buttons = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('bj_hit').setEmoji('👊').setStyle(ButtonStyle.Primary).setDisabled(isGameOver || isLoading || playerHandVisible.length >= 5),
-                new ButtonBuilder().setCustomId('bj_stand').setEmoji('🛑').setStyle(ButtonStyle.Danger).setDisabled(isGameOver || isLoading)
+                new ButtonBuilder().setCustomId('bj_hit').setEmoji('<:next:1520401265455009905>').setStyle(ButtonStyle.Primary).setDisabled(isGameOver || isLoading || playerHandVisible.length >= 5),
+                new ButtonBuilder().setCustomId('bj_stand').setEmoji('<:9219stop:1520401130990075904>').setStyle(ButtonStyle.Danger).setDisabled(isGameOver || isLoading)
             );
 
             return { embeds: [embed], components: [buttons] };
@@ -670,7 +936,7 @@ client.on('messageCreate', async (message) => {
 
                     if (pTotal > 21) {
                         collector.stop('lost');
-                        return msg.edit(generateBjEmbed('lost', `\n\n🪙 ~ You lost ${bet.toLocaleString()} cowoncy! (Bust [${pTotal}])`));
+                        return msg.edit(generateBjEmbed('lost', `\n\n ~<a:42410pengubitcoin:1520404843200516137>  You lost ${bet.toLocaleString()} slotcash! (Bust [${pTotal}])`));
                     }
 
                     // Jika menyentuh batas aman maksimal 5 kartu tanpa bust, paksa stand otomatis
@@ -701,10 +967,12 @@ client.on('messageCreate', async (message) => {
             let dTotal = getHandValue(dealerHandVisible);
             let pTotal = getHandValue(playerHandVisible);
 
-            // Dealer menarik kartu kecil lanjutan hingga batas aman minimal 17
-            while (dTotal < 17 && dTotal < pTotal && dealerHandVisible.length < 5) {
-                dealerHandVisible.push(getSmallBjCard());
-                dTotal = getHandValue(dealerHandVisible);
+            // LOGIKA BARU: Jika salah satu mendapat 21 dari awal dan player stand, dealer tidak draw kartu lagi
+            if (pTotal !== 21 && dTotal !== 21) {
+                while (dTotal < 17 && dTotal < pTotal && dealerHandVisible.length < 5) {
+                    dealerHandVisible.push(getSmallBjCard());
+                    dTotal = getHandValue(dealerHandVisible);
+                }
             }
 
             let finalPlayerTotal = getHandValue(playerHandVisible);
@@ -716,18 +984,18 @@ client.on('messageCreate', async (message) => {
 
             if (finalDealerTotal > 21) {
                 finalUserData.cash += (bet * 2);
-                resultText = `\n\n🪙 ~ You won ${bet.toLocaleString()} cowoncy! (Dealer Bust)`;
+                resultText = `\n\n<a:42410pengubitcoin:1520404843200516137>  ~ You won ${bet.toLocaleString()} slotcash! (Dealer Bust)`;
                 endStatus = 'won';
             } else if (finalPlayerTotal > finalDealerTotal) {
                 finalUserData.cash += (bet * 2);
-                resultText = `\n\n🪙 ~ You won ${bet.toLocaleString()} cowoncy!`;
+                resultText = `\n\n<a:42410pengubitcoin:1520404843200516137>  ~ You won ${bet.toLocaleString()} slotcash!`;
                 endStatus = 'won';
             } else if (finalPlayerTotal < finalDealerTotal) {
-                resultText = `\n\n🪙 ~ You lost ${bet.toLocaleString()} cowoncy!`;
+                resultText = `\n\n<a:42410pengubitcoin:1520404843200516137>  ~ You lost ${bet.toLocaleString()} slotcash!`;
                 endStatus = 'lost';
             } else {
                 finalUserData.cash += bet;
-                resultText = `\n\n🪙 ~ You tied!`;
+                resultText = `\n\n <a:42410pengubitcoin:1520404843200516137> ~ You tied!`;
                 endStatus = 'tied';
             }
             saveDB();
@@ -737,12 +1005,12 @@ client.on('messageCreate', async (message) => {
 
         collector.on('end', (collected, reason) => {
             if (reason === 'time') {
-                msg.edit({ content: '⏱️ | Sesi Blackjack berakhir karena terlalu lama diam.', components: [] }).catch(() => {});
+                msg.edit({ content: '⏱️ | sesi bermain BJ berakhir karena terlalu lama diam.', components: [] }).catch(() => {});
             }
         });
     }
 
-    // 8. Command: Slots (ss atau slot) - Maksimal 300.000
+    // 8. GAME SLOTS: Slots (ss atau slot) - Maksimal 300.000
     if (command === 'ss' || command === 'slot') {
         const authorData = getUserData(message.author.id);
         
@@ -807,7 +1075,7 @@ client.on('messageCreate', async (message) => {
         }, 3000);
     }
 
-    // 9. Perintah Baru: Mines Game Interaktif (smine) - Maksimal 300.000
+    // 9. GAME MINE: Mines Game Interaktif (smine) - Maksimal 300.000
     if (command === 'smine') {
         if (checkCooldown(message.author.id, 'smine', message)) return;
         const authorData = getUserData(message.author.id);
