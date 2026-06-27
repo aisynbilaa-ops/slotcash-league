@@ -357,12 +357,15 @@ client.on('messageCreate', async (message) => {
         }, 2500);
     }
 
-    // ================= GAME HIGHLOW (shl) - BALANCED RATE =================
+    // ================= GAME HIGHLOW (shl) =================
     if (command === 'shl') {
+        // Sistem Cooldown 5 detik
         if (checkCooldown(message.author.id, 'shl', message)) return;
+
         const authorData = getUserData(message.author.id);
         let bet = null;
 
+        // Membaca argumen taruhan
         args.forEach(arg => {
             const a = arg.toLowerCase();
             if (a === 'all') bet = authorData.cash;
@@ -370,29 +373,37 @@ client.on('messageCreate', async (message) => {
         });
 
         if (bet === null) bet = 1000; 
-        if (bet > 300000) bet = 300000; 
+        if (bet > 300000) bet = 300000; // Maksimal All-in 300.000
         if (bet <= 0) return message.reply('❌ Masukkan jumlah taruhan yang valid!');
-        if (authorData.cash < bet) return message.reply(`❌ Saldo cash tidak mencukupi.`);
+        if (authorData.cash < bet) return message.reply(`❌ Saldo cash kamu tidak mencukupi untuk bertaruh **${bet.toLocaleString()}** cash.`);
 
+        // Potong saldo di awal permainan
         authorData.cash -= bet;
         saveDB();
 
-        let cardHistory = [getRandomBjCard()]; 
+        // Kartu pertama diacak penuh dari awal permainan dengan batas maksimal angka 12
+        let currentRand = Math.floor(Math.random() * 12) + 1;
+        let cardHistory = [{ value: currentRand, emoji: `🃏 [${currentRand}]` }]; 
         let streak = 0;
         const cardbackEmoji = '<:cardback:1520298633981988955>';
 
+        // Fungsi kalkulasi nominal profit dinamis pada tombol (disesuaikan batas maksimal 12)
         const getNextProfit = (currentValue, type) => {
-            let chance = type === 'higher' ? (25 - currentValue) / 24 : (currentValue - 1) / 24;
+            let chance = type === 'higher' ? (13 - currentValue) / 12 : (currentValue - 1) / 12;
             if (chance <= 0) chance = 0.1; 
-            const multiplier = (1 / chance) * 1.10; 
+            const multiplier = (1 / chance) * 1.15; 
             return Math.floor(bet * multiplier);
         };
 
+        // Fungsi utama pembuat struktur pesan Embed
         function generateGameMessage(statusType = 'playing', selectedChoice = null, revealedCard = null) {
             const currentCard = cardHistory[cardHistory.length - 1];
-            let currentCashOut = streak === 0 ? 0 : Math.floor(bet * Math.pow(1.35, streak));
-            let currentMultiplier = streak === 0 ? 0.00 : Math.pow(1.35, streak);
+            
+            // Perhitungan rate cash out (Multiplier 1.45x per streak beruntun)
+            let currentCashOut = streak === 0 ? 0 : Math.floor(bet * Math.pow(1.45, streak));
+            let currentMultiplier = streak === 0 ? 0.00 : Math.pow(1.45, streak);
 
+            // Menyusun barisan kartu (Maksimal 3 kartu)
             let cardDisplayPath = cardHistory.map(c => c.emoji).join(' ‣ ');
             if (statusType === 'playing' && cardHistory.length < 3) {
                 cardDisplayPath += ` ‣ ${cardbackEmoji}`;
@@ -400,6 +411,7 @@ client.on('messageCreate', async (message) => {
                 cardDisplayPath += ` ‣ ${revealedCard.emoji}`;
             }
 
+            // Bagian info diletakkan di paling atas deskripsi setelah judul (sesuai foto)
             const infoHeader = `Bet: ${bet.toLocaleString()}  Streak: ${streak}  Cash Out: ${currentCashOut.toLocaleString()} ( ${currentMultiplier.toFixed(2)}x )\n${'—'.repeat(30)}`;
 
             const embed = new EmbedBuilder()
@@ -408,54 +420,80 @@ client.on('messageCreate', async (message) => {
             const nextHigherProfit = getNextProfit(currentCard.value, 'higher');
             const nextLowerProfit = getNextProfit(currentCard.value, 'lower');
 
+            // Set status disable tombol berdasarkan apakah game masih berjalan atau sudah selesai
+            const isFinished = statusType !== 'playing';
+
             const rowButtons = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('hl_higher').setLabel(`Higher (+${nextHigherProfit.toLocaleString()})`).setStyle(ButtonStyle.Primary),
-                new ButtonBuilder().setCustomId('hl_lower').setLabel(`Lower (+${nextLowerProfit.toLocaleString()})`).setStyle(ButtonStyle.Primary)
+                new ButtonBuilder()
+                    .setCustomId('hl_higher')
+                    .setLabel(`Higher (+${nextHigherProfit.toLocaleString()})`)
+                    .setStyle(ButtonStyle.Primary)
+                    .setDisabled(isFinished),
+                new ButtonBuilder()
+                    .setCustomId('hl_lower')
+                    .setLabel(`Lower (+${nextLowerProfit.toLocaleString()})`)
+                    .setStyle(ButtonStyle.Primary)
+                    .setDisabled(isFinished)
             );
 
             const rowCashout = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('hl_cashout').setLabel(streak === 0 ? 'Cash Out' : `Cash Out: ${currentCashOut.toLocaleString()}`).setStyle(ButtonStyle.Success).setDisabled(streak === 0)
+                new ButtonBuilder()
+                    .setCustomId('hl_cashout')
+                    .setLabel(streak === 0 ? 'Cash Out' : `Cash Out: ${currentCashOut.toLocaleString()}`)
+                    .setStyle(ButtonStyle.Success)
+                    .setDisabled(streak === 0 || isFinished)
             );
 
             if (statusType === 'playing') {
                 embed.setColor('#5865F2');
                 return { embeds: [embed], components: [rowButtons, rowCashout] };
             } 
+            
             if (statusType === 'lost') {
                 embed.setColor('#ED4245')
                     .setDescription(`👎 <@${message.author.id}> **guessed incorrectly!!**\n${infoHeader}\n\n## ${cardDisplayPath}\n\nYou guessed ${selectedChoice}. You lost.\n### Current Card: ${revealedCard.value}`);
-                rowButtons.components.forEach(b => b.setDisabled(true));
-                rowCashout.components.forEach(b => b.setDisabled(true));
                 return { embeds: [embed], components: [rowButtons, rowCashout] };
             }
+
             if (statusType === 'max_win') {
-                embed.setColor('#57F287').setDescription(`🎉 <@${message.author.id}> **reached max cards!**\n${infoHeader}\n\n## ${cardDisplayPath}\n\nGame selesai! Kemenangan disimpan: **${EMOJI_MONEY} ${currentCashOut.toLocaleString()}**`);
-                return { embeds: [embed], components: [] };
+                embed.setColor('#57F287')
+                    .setDescription(`🎉 <@${message.author.id}> **reached max cards!**\n${infoHeader}\n\n## ${cardDisplayPath}\n\nGame selesai! Kemenangan maksimal otomatis disimpan: **${EMOJI_MONEY} ${currentCashOut.toLocaleString()}**`);
+                return { embeds: [embed], components: [rowButtons, rowCashout] };
             }
+
             if (statusType === 'cashed_out') {
-                embed.setColor('#57F287').setDescription(`💰 <@${message.author.id}> **Cashed Out!**\n${infoHeader}\n\n## ${cardDisplayPath}\n\nBerhasil dicairkan senilai **${EMOJI_MONEY} ${currentCashOut.toLocaleString()}**`);
-                return { embeds: [embed], components: [] };
+                embed.setColor('#57F287')
+                    .setDescription(`💰 <@${message.author.id}> **Cashed Out!**\n${infoHeader}\n\n## ${cardDisplayPath}\n\nBerhasil dicairkan ke saldo slotcash senilai **${EMOJI_MONEY} ${currentCashOut.toLocaleString()}**`);
+                return { embeds: [embed], components: [rowButtons, rowCashout] };
             }
         }
 
         const msg = await message.reply(generateGameMessage('playing'));
-        const collector = msg.createMessageComponentCollector({ filter: i => i.user.id === message.author.id });
+        
+        const collector = msg.createMessageComponentCollector({
+            filter: i => i.user.id === message.author.id
+        });
 
         collector.on('collect', async i => {
             if (i.customId === 'hl_cashout') {
                 collector.stop('cashout');
-                let finalWinnings = Math.floor(bet * Math.pow(1.35, streak));
+                let finalWinnings = Math.floor(bet * Math.pow(1.45, streak));
+                
                 const finalUserData = getUserData(message.author.id);
                 finalUserData.cash += finalWinnings;
                 saveDB();
+
                 return i.update(generateGameMessage('cashed_out'));
             }
 
             let cardDisplayPath = cardHistory.map(c => c.emoji).join(' ‣ ');
-            let currentCashOut = streak === 0 ? 0 : Math.floor(bet * Math.pow(1.35, streak));
-            let currentMultiplier = streak === 0 ? 0.00 : Math.pow(1.35, streak);
+            
+            // Mengalkulasi total cashout saat ini untuk bagian atas info animasi
+            let currentCashOut = streak === 0 ? 0 : Math.floor(bet * Math.pow(1.45, streak));
+            let currentMultiplier = streak === 0 ? 0.00 : Math.pow(1.45, streak);
             const infoHeader = `Bet: ${bet.toLocaleString()}  Streak: ${streak}  Cash Out: ${currentCashOut.toLocaleString()} ( ${currentMultiplier.toFixed(2)}x )\n${'—'.repeat(30)}`;
 
+            // Efek animasi diperbesar menggunakan Header Markdown (##)
             const animEmbed = new EmbedBuilder()
                 .setColor('#2F3136')
                 .setDescription(`🃏 <@${message.author.id}> **started a HighLow game.**\n${infoHeader}\n\n## ${cardDisplayPath} ‣ <a:loadings:1520313495537586237>`);
@@ -465,29 +503,30 @@ client.on('messageCreate', async (message) => {
             setTimeout(async () => {
                 let isHigher = i.customId === 'hl_higher';
                 const currentCard = cardHistory[cardHistory.length - 1];
-                let nextCard = getRandomBjCard();
-
-                // Balancing Rate Kontrol Penyesuaian (Kesempatan Menang diperketat menjadi 45%)
-                const rateControl = Math.random();
-                if (rateControl > 0.45) {
-                    if (isHigher) {
-                        while (nextCard.value >= currentCard.value && currentCard.value > 1) { nextCard = getRandomBjCard(); }
-                    } else {
-                        while (nextCard.value <= currentCard.value && currentCard.value < 21) { nextCard = getRandomBjCard(); }
-                    }
+                
+                // SISTEM JUDI MURNI (RNG KASINO): Angka acak murni dari rentang 1 sampai maksimal 12
+                let nextCardValue = Math.floor(Math.random() * 12) + 1;
+                while (nextCardValue === currentCard.value) {
+                    nextCardValue = Math.floor(Math.random() * 12) + 1;
                 }
+                
+                let nextCard = { value: nextCardValue, emoji: `🃏 [${nextCardValue}]` };
 
+                // Evaluasi keabsahan hasil tebakan akhir pemain
                 let isWon = isHigher ? (nextCard.value >= currentCard.value) : (nextCard.value <= currentCard.value);
 
                 if (isWon) {
                     streak++;
                     cardHistory.push(nextCard);
+
                     if (cardHistory.length >= 3) {
                         collector.stop('max_win');
-                        let finalWinnings = Math.floor(bet * Math.pow(1.35, streak));
+                        let finalWinnings = Math.floor(bet * Math.pow(1.45, streak));
+                        
                         const finalUserData = getUserData(message.author.id);
                         finalUserData.cash += finalWinnings;
                         saveDB();
+
                         await msg.edit(generateGameMessage('max_win'));
                     } else {
                         await msg.edit(generateGameMessage('playing'));
@@ -500,9 +539,8 @@ client.on('messageCreate', async (message) => {
         });
     }
 
-    // ================= GAME BLACKJACK BARU (sbj) =================
+    // ================= GAME BLACKJACK JUDI MURNI (sbj) =================
     if (command === 'sbj') {
-        // Sistem Cooldown 5 detik
         if (checkCooldown(message.author.id, 'sbj', message)) return;
 
         const authorData = getUserData(message.author.id);
@@ -516,33 +554,43 @@ client.on('messageCreate', async (message) => {
         }
 
         if (bet === null) bet = 1000;
-        if (bet > 300000) bet = 300000; // Batasan Max All-In 300.000
-        if (bet <= 0) return message.reply('❌ Masukkan jumlah taruhan yang valid!');
-        if (authorData.cash < bet) return message.reply(`❌ Saldo tidak mencukupi.`);
+        if (bet > 300000) bet = 300000; 
+        if (bet <= 0) return message.reply('❌ masukkan jumlah taruhan yang valid!');
+        if (authorData.cash < bet) return message.reply(`❌ saldocash tidak mencukupi.`);
 
         authorData.cash -= bet;
         saveDB();
 
-        // Di awal game: Masing-masing hanya mendapat 1 kartu angka acak murni (Pasti <= 21)
+        // Mengambil kartu awal secara acak (Maksimal bernilai 21 di awal permainan)
         let playerHand = [getRandomBjCard()];
         let dealerHand = [getRandomBjCard()];
+        
+        // Kartu kedua disimpan di memori, di layar ditampilkan sebagai Cardback terlebih dahulu
+        let playerHiddenCard = getRandomBjCard();
+        let dealerHiddenCard = getRandomBjCard();
+
+        let playerHandVisible = [playerHand[0]];
+        let dealerHandVisible = [dealerHand[0]];
+
         const cardbackEmoji = '<:cardback:1520298633981988955>';
+        const loadingEmoji = '<a:loadings:1520313495537586237>';
 
-        function generateBjEmbed(isGameOver = false, statusText = '') {
-            const playerTotal = calculateHand(playerHand);
-            const dealerTotal = calculateHand(dealerHand);
+        function generateBjEmbed(isGameOver = false, statusText = '', isLoading = false) {
+            const playerTotal = calculateHand(playerHandVisible);
+            const dealerTotal = calculateHand(dealerHandVisible);
 
-            // Kondisi kartu: Di awal hanya tampil 1 kartu angka terbuka + 1 cardback misterius
-            let dealerCardString = isGameOver 
-                ? dealerHand.map(c => c.emoji).join(' ')
-                : `${dealerHand[0].emoji} ${cardbackEmoji}`;
+            let dealerCardString = dealerHandVisible.map(c => c.emoji).join(' ');
+            if (!isGameOver && dealerHandVisible.length === 1) dealerCardString += ` ${cardbackEmoji}`;
 
-            let dealerScoreText = isGameOver ? `[${dealerTotal}]` : `[${dealerHand[0].value} + ?]`;
-            let playerCardString = isGameOver
-                ? playerHand.map(c => c.emoji).join(' ')
-                : `${playerHand[0].emoji} ${cardbackEmoji}`;
-            
-            let playerScoreText = isGameOver ? `[${playerTotal}]` : `[${playerHand[0].value} + ?]`;
+            let playerCardString = playerHandVisible.map(c => c.emoji).join(' ');
+            if (!isGameOver && playerHandVisible.length === 1) playerCardString += ` ${cardbackEmoji}`;
+
+            let dealerScoreText = `[${dealerTotal}${!isGameOver && dealerHandVisible.length === 1 ? ' + ?' : ''}]`;
+            let playerScoreText = `[${playerTotal}${!isGameOver && playerHandVisible.length === 1 ? ' + ?' : ''}]`;
+
+            if (isLoading) {
+                statusText = `\n\n${loadingEmoji} *Sedang membagikan/membuka kartu...*`;
+            }
 
             const embed = new EmbedBuilder()
                 .setDescription(`👤 <@${message.author.id}>, you bet ${bet.toLocaleString()} to play blackjack\n\n**Dealer ${dealerScoreText}**\n${dealerCardString}\n\n**${message.author.username} ${playerScoreText}**\n${playerCardString}${statusText}`);
@@ -554,8 +602,8 @@ client.on('messageCreate', async (message) => {
             }
 
             const buttons = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('bj_hit').setEmoji('👊').setStyle(ButtonStyle.Primary).setDisabled(isGameOver),
-                new ButtonBuilder().setCustomId('bj_stand').setEmoji('🛑').setStyle(ButtonStyle.Danger).setDisabled(isGameOver)
+                new ButtonBuilder().setCustomId('bj_hit').setEmoji('👊').setStyle(ButtonStyle.Primary).setDisabled(isGameOver || isLoading),
+                new ButtonBuilder().setCustomId('bj_stand').setEmoji('🛑').setStyle(ButtonStyle.Danger).setDisabled(isGameOver || isLoading)
             );
 
             return { embeds: [embed], components: [buttons] };
@@ -567,70 +615,89 @@ client.on('messageCreate', async (message) => {
             time: 60000
         });
 
+        // Fungsi pembatas angka maksimal 25 agar tidak kelewatan jauh
+        function capHandValue(hand) {
+            let total = calculateHand(hand);
+            return total > 25 ? 25 : total;
+        }
+
         collector.on('collect', async i => {
             if (i.customId === 'bj_hit') {
-                // Saat menekan tinju (Hit), kartu misterius/cardback diubah menjadi kartu angka riil + ditarik kartu baru tambahan
-                playerHand.push(getRandomBjCard());
-                let pTotal = calculateHand(playerHand);
+                // Berikan efek loading terlebih dahulu
+                await i.update(generateBjEmbed(false, '', true));
 
-                if (pTotal > 21) {
-                    collector.stop('lost');
-                    return i.update(generateBjEmbed(true, `\n\n🪙 ~ You lost ${bet.toLocaleString()} slotcash!`));
-                }
-                return i.update(generateBjEmbed(false));
+                setTimeout(async () => {
+                    // Jika ini klik pertama, buka kartu cardback awal terlebih dahulu
+                    if (playerHandVisible.length === 1) {
+                        playerHandVisible.push(playerHiddenCard);
+                    } else {
+                        // Jika klik selanjutnya, ambil kartu acak baru dari dek
+                        playerHandVisible.push(getRandomBjCard());
+                    }
+
+                    let pTotal = calculateHand(playerHandVisible);
+
+                    if (pTotal > 21) {
+                        collector.stop('lost');
+                        let displayScore = capHandValue(playerHandVisible);
+                        return msg.edit(generateBjEmbed(true, `\n\n🪙 ~ You lost ${bet.toLocaleString()} slotcash! (Bust [${displayScore}])`));
+                    }
+
+                    return msg.edit(generateBjEmbed(false));
+                }, 1200); // Durasi loading kartu selama 1.2 detik
             }
 
             if (i.customId === 'bj_stand') {
                 collector.stop('stand');
+                // Berikan efek loading sebelum dealer membuka kartu
+                await i.update(generateBjEmbed(false, '', true));
 
-                // Buka kartu misterius dealer dengan menambahkan kartu riil baru
-                dealerHand.push(getRandomBjCard());
-                let dTotal = calculateHand(dealerHand);
-                let pTotal = calculateHand(playerHand);
-
-                // --- SISTEM BALANS EKONOMI 50% WIN RATE KONTROL ---
-                const econRate = Math.random();
-                if (econRate <= 0.50) {
-                    // Paksa dealer mengambil kartu hingga mengimbangi atau melampaui poin pemain
-                    while (dTotal < pTotal && dTotal < 17) {
-                        dealerHand.push(getRandomBjCard());
-                        dTotal = calculateHand(dealerHand);
+                setTimeout(async () => {
+                    // Buka kartu cardback tersembunyi milik dealer
+                    dealerHandVisible.push(dealerHiddenCard);
+                    
+                    // Jika di awal pemain belum mencet hit tapi langsung stand, buka kartu simpanannya juga
+                    if (playerHandVisible.length === 1) {
+                        playerHandVisible.push(playerHiddenCard);
                     }
-                } else {
-                    // Sisa 50% kesempatan rugi, dealer bermain agresif hingga risiko bust tinggi
-                    while (dTotal < 18) {
-                        dealerHand.push(getRandomBjCard());
-                        dTotal = calculateHand(dealerHand);
+
+                    let dTotal = calculateHand(dealerHandVisible);
+                    let pTotal = calculateHand(playerHandVisible);
+
+                    // AI Dealer pintar & tidak sengaja dibuat ketinggian angkanya (Maksimal ditarik jika di bawah 17 atau di bawah angka player)
+                    while (dTotal < 17 && dTotal < pTotal) {
+                        dealerHandVisible.push(getRandomBjCard());
+                        dTotal = calculateHand(dealerHandVisible);
                     }
-                }
 
-                const finalPlayerTotal = calculateHand(playerHand);
-                const finalDealerTotal = calculateHand(dealerHand);
+                    let finalPlayerTotal = calculateHand(playerHandVisible);
+                    let finalDealerTotal = calculateHand(dealerHandVisible);
 
-                let resultText = '';
-                const finalUserData = getUserData(message.author.id);
+                    let resultText = '';
+                    const finalUserData = getUserData(message.author.id);
 
-                if (finalDealerTotal > 21) {
-                    finalUserData.cash += (bet * 2);
-                    resultText = `\n\n🪙 ~ You won ${bet.toLocaleString()} slotcash!`;
-                } else if (finalPlayerTotal > finalDealerTotal) {
-                    finalUserData.cash += (bet * 2);
-                    resultText = `\n\n🪙 ~ You won ${bet.toLocaleString()} slotcash!`;
-                } else if (finalPlayerTotal < finalDealerTotal) {
-                    resultText = `\n\n🪙 ~ You lost ${bet.toLocaleString()} slotcash!`;
-                } else {
-                    finalUserData.cash += bet;
-                    resultText = `\n\n🪙 ~ You tied!`;
-                }
-                saveDB();
+                    if (finalDealerTotal > 21) {
+                        finalUserData.cash += (bet * 2);
+                        resultText = `\n\n🪙 ~ You won ${bet.toLocaleString()} slotcash! (Dealer Bust)`;
+                    } else if (finalPlayerTotal > finalDealerTotal) {
+                        finalUserData.cash += (bet * 2);
+                        resultText = `\n\n🪙 ~ You won ${bet.toLocaleString()} slotcash!`;
+                    } else if (finalPlayerTotal < finalDealerTotal) {
+                        resultText = `\n\n🪙 ~ You lost ${bet.toLocaleString()} slotcash!`;
+                    } else {
+                        finalUserData.cash += bet;
+                        resultText = `\n\n🪙 ~ You tied!`;
+                    }
+                    saveDB();
 
-                return i.update(generateBjEmbed(true, resultText));
+                    return msg.edit(generateBjEmbed(true, resultText));
+                }, 1200);
             }
         });
 
         collector.on('end', (collected, reason) => {
             if (reason === 'time') {
-                msg.edit({ content: '⏱️ | Sesi Blackjack berakhir.', components: [] }).catch(() => {});
+                msg.edit({ content: '⏱️ | Sesi Blackjack berakhir karena terlalu lama diam.', components: [] }).catch(() => {});
             }
         });
     }
