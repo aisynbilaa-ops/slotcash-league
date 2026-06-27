@@ -5,9 +5,6 @@ const {
 } = require('discord.js');
 
 const fs = require('fs');
-const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require('discord.js');
-const fs = require('fs');
-
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
