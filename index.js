@@ -34,11 +34,14 @@ const EMOJI_SLOTS = [
 // Opsional: Batasi hanya di channel tertentu
 const ALLOWED_CHANNEL_ID = '1520511368795652366'; 
 
-if (command === 'spy' && args[0]?.toLowerCase() === 'start') {
-    if (message.channel.id !== ALLOWED_CHANNEL_ID) {
-        return message.reply('❌ Game Spy hanya bisa dimulai di channel khusus spy!');
-    }
-    // ... lanjut ke logika start game ...
+// Perintah untuk Admin: !setspy
+if (command === 'setspy') {
+    if (!message.member.permissions.has('Administrator')) return message.reply('❌ Hanya Admin yang bisa menggunakan ini!');
+    
+    // Simpan ID channel ke database
+    db.spyChannel = message.channel.id;
+    saveDB(); // Fungsi untuk menyimpan perubahan ke database
+    message.reply(`✅ Channel untuk main Spy telah diatur ke: **#${message.channel.name}**`);
 }
 
 // ================= KONFIGURASI WHO IS THE SPY =================
@@ -281,6 +284,23 @@ client.once('ready', () => {
 
 client.on('messageCreate', async (message) => {
     if (message.author.bot || !message.guild) return;
+
+    // TEMPATKAN FILTER DI SINI:
+    if (command === 'spy' && args[0]?.toLowerCase() === 'start') {
+        // Cek apakah database sudah memiliki ID channel spy
+        if (db.spyChannel && message.channel.id !== db.spyChannel) {
+            return message.reply(`❌ Kamu tidak bisa main di sini! Silakan main di channel <#${db.spyChannel}>`);
+        }
+        
+        // Cek jika admin belum mengatur channel
+        if (!db.spyChannel) {
+            return message.reply('⚠️ Admin belum mengatur channel Spy! Gunakan `!setspy` di channel yang diinginkan.');
+        }
+
+        // Lanjut ke logika start game setelah filter lolos
+        // ... kode start game kamu ...
+    }
+
 
     // Command: /menolaktoxic (Hanya Admin)
     if (message.content.startsWith('/menolaktoxic')) {
