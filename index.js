@@ -905,7 +905,7 @@ client.on('messageCreate', async (message) => {
 
             const embed = new EmbedBuilder()
                 .setAuthor({ 
-                    name: `{message.author.tag}, you bet ${bet.toLocaleString()} to play blackjack `, 
+                    name: `${message.author.username}, you bet ${bet.toLocaleString()} to play blackjack `, 
                     iconURL: message.author.displayAvatarURL({ dynamic: true }) 
                 })
                 .setDescription(`\n\n**Dealer ${dealerScoreText}**\n${dealerCardString}\n\n**${message.author.username} ${playerScoreText}**\n${playerCardString}${statusText}`);
