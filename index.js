@@ -772,7 +772,7 @@ client.on('messageCreate', async (message) => {
 
                 const gameEmbed = new EmbedBuilder()
                     .setColor('#5865F2')
-                    .setTitle('MINES DUEL <@${message.author.id}> & <@${targetUser.id}>')
+                    .setTitle('MINES DUEL ${message.author.username} VS ${targetUser.username}')
                     .setDescription(`Pot: **${betAmt * 2} cash**\nGiliran: <@${turnPlayer}> (Pilih kotak!)`);
 
                 await i.update({ content: 'DUEL DIMULAI!', embeds: [], components: [] });
@@ -905,7 +905,7 @@ client.on('messageCreate', async (message) => {
 
             const embed = new EmbedBuilder()
                 .setAuthor({ 
-                    name: `<@${message.author.id}>, you bet ${bet.toLocaleString()} to play blackjack `, 
+                    name: `{message.author.tag}, you bet ${bet.toLocaleString()} to play blackjack `, 
                     iconURL: message.author.displayAvatarURL({ dynamic: true }) 
                 })
                 .setDescription(`\n\n**Dealer ${dealerScoreText}**\n${dealerCardString}\n\n**${message.author.username} ${playerScoreText}**\n${playerCardString}${statusText}`);
