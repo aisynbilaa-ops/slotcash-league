@@ -401,126 +401,81 @@ client.on('messageCreate', async (message) => {
         return message.reply(`💵 | **${message.author.username}**, saat ini kamu memiliki **${userData.cash.toLocaleString()}** cash!`);
     }
 
-// ================= COMMAND: CEK POIN SPY (/cpspay) =================
-    if (command === 'cpspay' || command === 'cpspy') {
-        const userData = getUserData(message.author.id);
-        return message.reply(`🕵️ | **${message.author.username}**, total Spy Points kamu saat ini adalah: **${userData.spyPoints.toLocaleString()}** poin!`);
+    /// ================= COMMAND UTAMA: WHO IS THE SPY =================
+if (command === 'spy' && args[0]?.toLowerCase() === 'start') {
+    if (activeSpyGames.has(message.channel.id)) {
+        return message.reply('❌ Sedang ada permainan Spy yang berlangsung di channel ini!');
     }
 
-    // ================= COMMAND: TOP SPY (/topspy) =================
-    if (command === 'topspy') {
-        const sortedSpies = Object.entries(db.users)
-            .map(([id, data]) => ({ id, points: data.spyPoints || 0 }))
-            .sort((a, b) => b.points - a.points)
-            .slice(0, 5);
+    let gameState = {
+        host: message.author.id,
+        players: [message.author.id],
+        maxRounds: 5,
+        currentRound: 1,
+        clues: {},
+        status: 'lobby'
+    };
+    activeSpyGames.set(message.channel.id, gameState);
 
-        let lbText = '';
-        for (let i = 0; i < sortedSpies.length; i++) {
-            if (sortedSpies[i].points <= 0) continue;
-            try {
-                const user = await client.users.fetch(sortedSpies[i].id);
-                lbText += `${i + 1}. **${user.username}** — 🕵️ ${sortedSpies[i].points.toLocaleString()} pts\n`;
-            } catch {
-                lbText += `${i + 1}. **User Keluar** — 🕵️ ${sortedSpies[i].points.toLocaleString()} pts\n`;
-            }
+    const buildLobbyEmbed = () => new EmbedBuilder()
+        .setColor('#ffc0cb')
+        .setTitle('🕵️ WHO IS THE SPY? (Lobby)')
+        // Update: Batasan pemain 1 - 15
+        .setDescription(`**Host:** <@${gameState.host}>\nMINIMAL 1 - MAXIMAL 15 PEMAIN.\n\n**Pemain Terdaftar (${gameState.players.length}/15):**\n${gameState.players.map(p => `<@${p}>`).join('\n')}`);
+
+    const lobbyRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('spy_join').setLabel('Gabung').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId('spy_start').setLabel('Mulai Game (Host)').setStyle(ButtonStyle.Success)
+    );
+
+    const lobbyMsg = await message.channel.send({ embeds: [buildLobbyEmbed()], components: [lobbyRow] });
+    const lobbyCollector = lobbyMsg.createMessageComponentCollector({ time: 120000 });
+
+    lobbyCollector.on('collect', async i => {
+        if (i.customId === 'spy_join') {
+            if (gameState.players.includes(i.user.id)) return i.reply({ content: 'Kamu sudah bergabung!', ephemeral: true });
+            if (gameState.players.length >= 15) return i.reply({ content: 'Lobby penuh!', ephemeral: true });
+            gameState.players.push(i.user.id);
+            await i.update({ embeds: [buildLobbyEmbed()] });
         }
 
-        const embed = new EmbedBuilder()
-            .setColor('#ffc0cb')
-            .setTitle('🏆 TOP 5 MASTER SPY 🏆')
-            .setDescription(lbText || 'Belum ada agen yang mencetak poin.');
-        return message.reply({ embeds: [embed] });
-    }
+        if (i.customId === 'spy_start') {
+            if (i.user.id !== gameState.host) return i.reply({ content: 'Hanya host yang bisa memulai game!', ephemeral: true });
+            if (gameState.players.length < 1) return i.reply({ content: 'Dibutuhkan minimal 1 pemain!', ephemeral: true });
 
-    // ================= COMMAND UTAMA: WHO IS THE SPY =================
-    if (command === 'spy' && args[0]?.toLowerCase() === 'start') {
-        if (activeSpyGames.has(message.channel.id)) {
-            return message.reply('❌ Sedang ada permainan Spy yang berlangsung di channel ini!');
+            // FIX: Beri respon instan agar tidak terjadi 'interaction failed'
+            await i.update({ content: '✅ Game dimulai! Mengirim pesan rahasia ke para pemain...', embeds: [], components: [] });
+
+            lobbyCollector.stop('start');
+            gameState.status = 'playing';
+
+            const wordPair = SPY_WORD_PAIRS[Math.floor(Math.random() * SPY_WORD_PAIRS.length)];
+            gameState.spyId = gameState.players[Math.floor(Math.random() * gameState.players.length)];
+            gameState.wordNormal = wordPair.normal;
+            gameState.wordSpy = wordPair.spy;
+            gameState.turnIndex = 0;
+
+            // Proses DM sekarang aman dijalankan setelah i.update
+            for (const playerId of gameState.players) {
+                try {
+                    const user = await client.users.fetch(playerId);
+                    const isSpy = playerId === gameState.spyId;
+                    const roleEmbed = new EmbedBuilder()
+                        .setColor('#ffc0cb')
+                        .setTitle('Tugas Rahasia Kamu 🕵️')
+                        .setDescription(`Kamu adalah **${isSpy ? 'SPY' : 'INNOCENT'}**\nKata kamu adalah: **${isSpy ? gameState.wordSpy : gameState.wordNormal}**`);
+                    await user.send({ embeds: [roleEmbed] });
+                    gameState.clues[playerId] = [];
+                } catch (err) {}
+            }
+            startInterrogationPhase(message.channel, gameState);
         }
-
-        let gameState = {
-            host: message.author.id,
-            players: [message.author.id],
-            maxRounds: 5,
-            currentRound: 1,
-            clues: {}, // Menyimpan semua ciri-ciri yang diketik
-            status: 'lobby' // lobby, playing, voting
-        };
-        activeSpyGames.set(message.channel.id, gameState);
-
-        // UBAH: Teks embed diperbarui menjadi 3-15 pemain
-        const buildLobbyEmbed = () => new EmbedBuilder()
-            .setColor('#fc6b83')
-            .setTitle('🕵️ WHO IS THE SPY? (Lobby)')
-            .setDescription(`**Host:** <@${gameState.host}>\nMinimal 3 - Maksimal 15 Pemain.\n\n**Pemain Terdaftar (${gameState.players.length}/15):**\n${gameState.players.map(p => `<@${p}>`).join('\n')}`);
-        
-        const lobbyRow = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId('spy_join').setLabel('JOIN').setStyle(ButtonStyle.Primary),
-            new ButtonBuilder().setCustomId('spy_start').setLabel('MULAI GAME (Host)').setStyle(ButtonStyle.Success)
-        );
-        
-        const lobbyMsg = await message.channel.send({ embeds: [buildLobbyEmbed()], components: [lobbyRow] });
-        const lobbyCollector = lobbyMsg.createMessageComponentCollector({ time: 120000 });
-
-        lobbyCollector.on('collect', async i => {
-            if (i.customId === 'spy_join') {
-                if (gameState.players.includes(i.user.id)) return i.reply({ content: 'KAMU SUDAH BERGABUNG!', ephemeral: true });
-                // UBAH: Maksimal 15 pemain
-                if (gameState.players.length >= 15) return i.reply({ content: 'LOBBY PENUH!', ephemeral: true });
-                gameState.players.push(i.user.id);
-           
-                await i.update({ embeds: [buildLobbyEmbed()] });
-            }
-
-            if (i.customId === 'spy_start') {
-                if (i.user.id !== gameState.host) return i.reply({ content: 'Hanya host yang bisa memulai game!', ephemeral: true });
-                // UBAH: Minimal 3 pemain
-                if (gameState.players.length < 3) return i.reply({ content: 'Dibutuhkan minimal 3 pemain untuk bermain!', ephemeral: true });
-
-                // PERBAIKAN ERROR: Beri tahu Discord bahwa bot butuh waktu untuk merespons agar tidak "Interaction failed"
-                await i.deferUpdate(); 
-
-                lobbyCollector.stop('start');
-                gameState.status = 'playing';
-
-                // Setup Roles
-                const wordPair = SPY_WORD_PAIRS[Math.floor(Math.random() * SPY_WORD_PAIRS.length)];
-                gameState.spyId = gameState.players[Math.floor(Math.random() * gameState.players.length)];
-                gameState.wordNormal = wordPair.normal;
-                gameState.wordSpy = wordPair.spy;
-                gameState.turnIndex = 0;
-                
-                // DM Pemain
-                let dmFailed = false;
-                for (const playerId of gameState.players) {
-                    try {
-                        const user = await client.users.fetch(playerId);
-                        const isSpy = playerId === gameState.spyId;
-                        const roleEmbed = new EmbedBuilder()
-                            .setColor('#ffc0cb')
-                            .setTitle('TUGAS RAHASIA KAMU 🕵️')
-                            .setDescription(`Kamu adalah **${isSpy ? 'SPY' : 'INNOCENT'}**\nKata kamu adalah: **${isSpy ? gameState.wordSpy : gameState.wordNormal}**\n\n*Jangan beritahu siapapun kata ini!*`);
-                        await user.send({ embeds: [roleEmbed] });
-                        gameState.clues[playerId] = [];
-                    } catch (err) {
-                        dmFailed = true;
-                    }
-                }
-
-                if (dmFailed) {
-                    message.channel.send('⚠️ **PERINGATAN:** Beberapa pemain mungkin tidak menerima DM rahasia karena pengaturan privasi mereka ditutup!');
-                }
-
-                // PERBAIKAN ERROR: Gunakan editReply karena sebelumnya sudah di-defer
-                await i.editReply({ content: '✅ GAME SPY DIMULAI! CEK DM RAHASIA KAMU UNTUK MEMULAI GAME.', embeds: [], components: [] });
-                startInterrogationPhase(message.channel, gameState);
-            }
-        });
+    });
 
         lobbyCollector.on('end', (c, reason) => {
             if (reason === 'time') {
                 activeSpyGames.delete(message.channel.id);
-                lobbyMsg.edit({ content: 'Waktu lobby habis. Game dibatalkan.', embeds: [], components: [] }).catch(()=>{});
+                lobbyMsg.edit({ content: 'WAKTU DI LOBBY HABIS, GAME DIBATALKAN.', embeds: [], components: [] }).catch(()=>{});
             }
         });
     }
@@ -533,7 +488,7 @@ client.on('messageCreate', async (message) => {
         
         let historyDesc = `**Round ${gameState.currentRound} / ${gameState.maxRounds}**\n\n`;
         gameState.players.forEach(pId => {
-            const userClues = gameState.clues[pId].map((c, idx) => `[R${idx+1}]: ${c}`).join(' | ');
+            const userClues = (gameState.clues[pId] || []).map((c, idx) => `[R${idx+1}]: ${c}`).join(' | ');
             historyDesc += `🔹 <@${pId}>: ${userClues || '*Belum ada ciri-ciri*'}\n`;
         });
 
@@ -574,7 +529,9 @@ client.on('messageCreate', async (message) => {
                     const modalSubmit = await i.awaitModalSubmit({ time: 60000, filter: mi => mi.user.id === currentPlayerId });
                     const clue = modalSubmit.fields.getTextInputValue('clue_text');
                     
+                    if(!gameState.clues[currentPlayerId]) gameState.clues[currentPlayerId] = [];
                     gameState.clues[currentPlayerId].push(clue);
+                    
                     turnCollector.stop('answered');
                     await modalSubmit.update({ content: `✅ Ciri-ciri diterima!`, embeds: [], components: [] });
 
@@ -716,6 +673,22 @@ client.on('messageCreate', async (message) => {
                 handleWin(channel, gameState, 'spy', resultDesc);
             }
         });
+    }
+
+    // UBAH: Fungsi diperbaiki struktur kurungnya yang tadinya terpotong
+    function getUserData(userId) {
+        // 1. Cek apakah user sudah ada di database
+        if (!db.users[userId]) {
+            db.users[userId] = { spyPoints: 0 };
+            saveDB();
+        }
+        // 2. Jika user sudah ada, cek apakah dia pemain lama (belum punya spyPoints)
+        else if (db.users[userId].spyPoints === undefined) {
+            db.users[userId].spyPoints = 0; // Tambahkan field spyPoints tanpa menghapus cash
+            saveDB();
+        }
+        
+        return db.users[userId];
     }
 
     // Eksekusi Pemenang dan Pembagian Poin
