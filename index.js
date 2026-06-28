@@ -448,30 +448,37 @@ client.on('messageCreate', async (message) => {
         };
         activeSpyGames.set(message.channel.id, gameState);
 
+        // UBAH: Teks embed diperbarui menjadi 3-15 pemain
         const buildLobbyEmbed = () => new EmbedBuilder()
-            .setColor('#ffc0cb')
+            .setColor('#fc6b83')
             .setTitle('🕵️ WHO IS THE SPY? (Lobby)')
-            .setDescription(`**Host:** <@${gameState.host}>\nMinimal 4 - Maksimal 10 Pemain.\n\n**Pemain Terdaftar (${gameState.players.length}/10):**\n${gameState.players.map(p => `<@${p}>`).join('\n')}`);
-
+            .setDescription(`**Host:** <@${gameState.host}>\nMinimal 3 - Maksimal 15 Pemain.\n\n**Pemain Terdaftar (${gameState.players.length}/15):**\n${gameState.players.map(p => `<@${p}>`).join('\n')}`);
+        
         const lobbyRow = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId('spy_join').setLabel('Gabung').setStyle(ButtonStyle.Primary),
-            new ButtonBuilder().setCustomId('spy_start').setLabel('Mulai Game (Host)').setStyle(ButtonStyle.Success)
+            new ButtonBuilder().setCustomId('spy_join').setLabel('JOIN').setStyle(ButtonStyle.Primary),
+            new ButtonBuilder().setCustomId('spy_start').setLabel('MULAI GAME (Host)').setStyle(ButtonStyle.Success)
         );
-
+        
         const lobbyMsg = await message.channel.send({ embeds: [buildLobbyEmbed()], components: [lobbyRow] });
         const lobbyCollector = lobbyMsg.createMessageComponentCollector({ time: 120000 });
 
         lobbyCollector.on('collect', async i => {
             if (i.customId === 'spy_join') {
-                if (gameState.players.includes(i.user.id)) return i.reply({ content: 'Kamu sudah bergabung!', ephemeral: true });
-                if (gameState.players.length >= 10) return i.reply({ content: 'Lobby penuh!', ephemeral: true });
+                if (gameState.players.includes(i.user.id)) return i.reply({ content: 'KAMU SUDAH BERGABUNG!', ephemeral: true });
+                // UBAH: Maksimal 15 pemain
+                if (gameState.players.length >= 15) return i.reply({ content: 'LOBBY PENUH!', ephemeral: true });
                 gameState.players.push(i.user.id);
+           
                 await i.update({ embeds: [buildLobbyEmbed()] });
             }
 
             if (i.customId === 'spy_start') {
                 if (i.user.id !== gameState.host) return i.reply({ content: 'Hanya host yang bisa memulai game!', ephemeral: true });
-                if (gameState.players.length < 4) return i.reply({ content: 'Dibutuhkan minimal 4 pemain untuk bermain!', ephemeral: true });
+                // UBAH: Minimal 3 pemain
+                if (gameState.players.length < 3) return i.reply({ content: 'Dibutuhkan minimal 3 pemain untuk bermain!', ephemeral: true });
+
+                // PERBAIKAN ERROR: Beri tahu Discord bahwa bot butuh waktu untuk merespons agar tidak "Interaction failed"
+                await i.deferUpdate(); 
 
                 lobbyCollector.stop('start');
                 gameState.status = 'playing';
@@ -482,7 +489,7 @@ client.on('messageCreate', async (message) => {
                 gameState.wordNormal = wordPair.normal;
                 gameState.wordSpy = wordPair.spy;
                 gameState.turnIndex = 0;
-
+                
                 // DM Pemain
                 let dmFailed = false;
                 for (const playerId of gameState.players) {
@@ -491,7 +498,7 @@ client.on('messageCreate', async (message) => {
                         const isSpy = playerId === gameState.spyId;
                         const roleEmbed = new EmbedBuilder()
                             .setColor('#ffc0cb')
-                            .setTitle('Tugas Rahasia Kamu 🕵️')
+                            .setTitle('TUGAS RAHASIA KAMU 🕵️')
                             .setDescription(`Kamu adalah **${isSpy ? 'SPY' : 'INNOCENT'}**\nKata kamu adalah: **${isSpy ? gameState.wordSpy : gameState.wordNormal}**\n\n*Jangan beritahu siapapun kata ini!*`);
                         await user.send({ embeds: [roleEmbed] });
                         gameState.clues[playerId] = [];
@@ -504,7 +511,8 @@ client.on('messageCreate', async (message) => {
                     message.channel.send('⚠️ **PERINGATAN:** Beberapa pemain mungkin tidak menerima DM rahasia karena pengaturan privasi mereka ditutup!');
                 }
 
-                await i.update({ content: 'Permainan Dimulai! Cek DM kamu untuk melihat kata rahasia.', embeds: [], components: [] });
+                // PERBAIKAN ERROR: Gunakan editReply karena sebelumnya sudah di-defer
+                await i.editReply({ content: '✅ GAME SPY DIMULAI! CEK DM RAHASIA KAMU UNTUK MEMULAI GAME.', embeds: [], components: [] });
                 startInterrogationPhase(message.channel, gameState);
             }
         });
